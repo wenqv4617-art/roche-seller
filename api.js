@@ -1,9 +1,9 @@
 // ==================== AI 智能生成与决策层 ====================
 (function(exports) {
-  // 安全地在文件作用域顶部获取全局共享命名空间，彻底解决 ReferenceError 问题
+  // 安全获取全局共享命名空间
   const rsa = window.RocheSellerAuction;
 
-  // 1. 预设高品质备用 NPC 表单（用于托底和格式修补）
+  // 1. 预设托底 NPC 表单
   const _backupNpcs = [
     { id: "npc-gu-qing", name: "顾清", bio: "古画修复师，能从斑驳墨迹中感知时光执念。", initials: "顾" },
     { id: "npc-quinn", name: "奎恩", bio: "荒原拾荒人，专注于寻找旧时代机械废墟里的精密遗物。", initials: "奎" },
@@ -12,7 +12,26 @@
     { id: "npc-shiya", name: "希雅", bio: "迷途的灵修学者，致力于解析精神共鸣与灵魂本质。", initials: "希" }
   ];
 
-  // 2. 世界书加载与挂载
+  // 2. 强效容错 JSON 清洗器（输出具体解析错误码）
+  function cleanAndParseJSON(rawText) {
+    if (!rawText) {
+      throw new Error("AI 返回了空内容，无法解析");
+    }
+    try {
+      let cleaned = rawText.trim();
+      // 强力剥离 markdown 格式包裹
+      cleaned = cleaned.replace(/^```json\s*/i, "");
+      cleaned = cleaned.replace(/^```\s*/, "");
+      cleaned = cleaned.replace(/\s*```$/, "");
+      return JSON.parse(cleaned);
+    } catch (e) {
+      // 提取核心报错字符，回显在 UI 界面上，方便你一眼看穿问题
+      const sample = rawText.replace(/\n/g, " ").substring(0, 80);
+      throw new Error(`JSON解析崩溃 (${e.message}) - 原始切片: "${sample}..."`);
+    }
+  }
+
+  // 3. 世界书挂载
   exports.loadWorldbookText = async function() {
     try {
       const entries = await rsa.roche.worldbook.getEntries({ scope: "global" });
@@ -25,7 +44,7 @@
     return "暂无全局世界设定。";
   };
 
-  // 3. 数据存取
+  // 4. 数据存取
   exports.loadData = async function() {
     const roche = rsa.roche;
     try {
@@ -47,7 +66,6 @@
     rsa.state.npcRegistry = (await roche.storage.get("auction_npc_registry")) || {};
     rsa.state.biddingWars = (await roche.storage.get("auction_bidding_wars")) || {};
 
-    // 默认空状态初始化
     if (rsa.state.items.length === 0) {
       await exports.triggerAIRefreshItems();
     }
@@ -64,11 +82,10 @@
     }
   };
 
-  // 4. 默认兜底本地拍卖品生成
+  // 5. 托底商品本地生成器
   function generateDefaultItems() {
     const defaultItems = [];
     
-    // 主线角色基础商品
     if (rsa.state.allChars && rsa.state.allChars.length > 0) {
       rsa.state.allChars.forEach((char, index) => {
         const charName = char.name || char.handle || "神秘客";
@@ -89,11 +106,9 @@
       });
     }
 
-    // 托底混合 NPC 预设商品
     _backupNpcs.forEach((npc, idx) => {
       const npcKey = `${npc.id}-${idx}`;
       
-      // 写入注册表，防崩
       rsa.state.npcRegistry[npcKey] = {
         name: npc.name,
         bio: npc.bio,
@@ -119,7 +134,7 @@
     return defaultItems;
   }
 
-  // 5. 纯动态 NPC 产生 & 刷新大厅（含强制格式清洗）
+  // 6. AI 刷新商品大厅
   exports.triggerAIRefreshItems = async function() {
     if (rsa.isRefreshing) return;
     rsa.isRefreshing = true;
@@ -127,7 +142,6 @@
 
     const worldbookText = await exports.loadWorldbookText();
     const charListInfo = rsa.state.allChars.map(c => `- ID: ${c.id}, 名字: ${c.name || c.handle}, 设定: ${c.persona || c.bio || ""}`).join("\n");
-
     const npcNameTemplates = _backupNpcs.map(n => `${n.name} (${n.bio})`).join("、");
 
     const systemPrompt = `你是一个线上秘密拍卖行的商品与买家NPC规划AI。
@@ -139,22 +153,22 @@ ${worldbookText}
 【当前可用的挂载真实角色】：
 ${charListInfo}
 
-【NPC 名字与身份偏好参考（可作为基调进行自由扩散）】：
+【NPC 名字与身份偏好参考】：
 ${npcNameTemplates}
 
 【生成准则】：
-1. 生成 3-4 个拍卖品，这些商品中有一部分必须是由实际角色（Characters）提供的（注入其记忆），一部分是由完全随机由你构建的NPC提供的。
-2. 每一个由你动态构建的NPC，你必须为其构想独特的“npcBio (性格及偏好简介)”。
-3. 严格输出一个合法、无 markdown 格式包裹、不含多余文字的 JSON 数组：
+1. 生成 3-4 个拍卖品，这些商品中有一部分必须是由实际角色（Characters）提供的，一部分是由完全随机由你构建的NPC提供的。
+2. 每一个由你动态构建的NPC，你必须为其构想独特的“npcBio”。
+3. 请严格输出一个合法、无 markdown 格式包裹、不含多余文字的 JSON 数组：
 [
   {
     "id": "随机唯一商品ID",
     "title": "物品名称",
-    "description": "高品质的文学色彩描述。若是实际角色的物品，将人设关联记忆深度融入。",
+    "description": "高品质描述。若是实际角色的物品，将人设关联记忆深度融入。",
     "sellerId": "实际角色的ID 或 随机NPC的唯一拼音ID(如 npc-gu-qing)",
-    "sellerName": "卖家名称（必须符合其中文名字或设定）",
-    "isNpc": true或false(新生成的NPC写true),
-    "npcBio": "如果是NPC，请写一段其执念、身份和偏好的极简简介（1-2句），实际角色写空字",
+    "sellerName": "卖家名称（中文名字或设定）",
+    "isNpc": true或false(系统NPC为true),
+    "npcBio": "如果是NPC，请写其偏好和执念简介，实际角色写空字",
     "currentBid": 整数底价,
     "highestBidderName": "暂无"
   }
@@ -180,8 +194,6 @@ ${npcNameTemplates}
           let isNpc = !!item.isNpc || sellerId.startsWith("npc-");
 
           if (isNpc) {
-            // ==================== 托底与容错清洗 ====================
-            // 如果 AI 生成的 NPC 数据不规范，强制从中位托底库挑选一名匹配，防止因 sellerId 为空或格式错乱导致系统雪崩
             if (!sellerId || !sellerName || !sellerId.startsWith("npc-")) {
               const fallbackNpc = _backupNpcs[Math.floor(Math.random() * _backupNpcs.length)];
               sellerId = `${fallbackNpc.id}-${Math.floor(Math.random() * 1000)}`;
@@ -222,21 +234,24 @@ ${npcNameTemplates}
         await exports.saveData();
         rsa.roche.ui.toast("拍卖品及NPC重组成功！");
       } else {
-        throw new Error("AI 数据格式转换失败");
+        throw new Error("AI 生成的数据未能转换为标准数组。");
       }
     } catch (e) {
-      console.error("动态生成失败，启动托底预设商品生成器：", e);
+      console.error("AI生成彻底失败：", e);
+      // 将具体的错误信息、错误类型、甚至是 AI 的原始响应回显在 UI 弹窗上，彻底摆脱“两眼抹黑”
+      const errorMsg = e.message || String(e);
+      rsa.roche.ui.toast(`AI 构造失败: ${errorMsg.substring(0, 90)} (已为您执行预设托底)`);
+      
       const userItems = rsa.state.items.filter(i => i.isUserItem);
       rsa.state.items = [...userItems, ...generateDefaultItems()];
       await exports.saveData();
-      rsa.roche.ui.toast("AI 构造繁忙，已为您无缝切换至预设托底商品。");
     } finally {
       rsa.isRefreshing = false;
       await rsa.ui.renderAll();
     }
   };
 
-  // 6. 线下 VIP 私密包间的深度对话 (第三人称行动描写)
+  // 7. 线下 VIP 私密包间对话 (微型小说文体 + 铁律：禁止代替 User 回答或行动)
   exports.getAIReplyForAuction = async function(item, messages, messagesContainer) {
     const roche = rsa.roche;
 
@@ -264,28 +279,25 @@ ${npcNameTemplates}
     const worldbookText = await exports.loadWorldbookText();
 
     const systemPrompt = `你现在在扮演 Roche 里的角色【${item.sellerName}】。
-当前语境为：线下顶级秘密拍卖会的一间【奢华 VIP 密闭私人包间】。在这个极其私密的暗室里，你们正在面对面商讨关于藏品《${item.title}》的私下交易契约。
+当前场景为：秘密拍卖会的【线下实体 VIP 密闭私享包厢】。在这个隔绝一切杂音的暗室里，你和用户面对面坐着，私下对弈商讨关于藏品《${item.title}》的私密契约。
 
-【包间场景叙事规则】
+【小说文体 & 严厉行为限制（核心铁律）】：
+1. 你的叙事必须采用【精美微型小说/线下叙述文体】。
+2. 你（角色本人）的所有肢体动作、呼吸神态、面部微表情、以及包厢的光影反应，必须一律且严格地使用【第三人称（他/她）】并用 * 符号进行包裹描写。你的台词使用正常的冒号和双引号（例如：*他端着白瓷茶盏的手指微微一顿，白雾模糊了他探寻的视线。*“你要走大厅的流水吗，我的朋友？”）。
+3. 【铁律：绝对禁止替用户（User）行动或说话】！你无权控制用户。严禁描写任何关于用户的动作、表情、言语、内心戏、或者替用户顺承回答！你只能、且仅能描写你所扮演的这个角色本人。用户的一言一行，将由用户发过来的自由文本来决定。
 
-1. 全篇采用第三人称限制性行动描写（用*包裹），只写他的肢体、视线、道具交互、环境光影变化。
-2. 每次回复开头或结尾允许插入一句他的神态/动作+包间环境细节，但仅此一句，不堆砌。
-3. 用户行为用第一人称呈现，对他的称呼统一用第二人称“你”。
-4. 对话要像真实线下叙述——有停顿、有语气、有动作间隙，不工整。
-5. 剩下全交给模型自行发挥，包括节奏、情绪氛围、叙事走向。
-
-【世界背景、人设及记忆轨迹】：
+【世界设定、人设背景与记忆轨迹】：
 ${worldbookText}
-角色人设设定：${charPersona}
-你与该用户的过往轨迹：${memoryText}
+你的人设设定：${charPersona}
+你与该用户的过往经历：${memoryText}
 
-【交易信息】：
-正在商讨的物品：${item.title} (当前报价: ¥${item.currentBid})
-用户面具背景：${userPersonaDetails}
+【当前交易上下文】：
+商讨物件：${item.title} (当前报价: ¥${item.currentBid})
+用户面具详情：${userPersonaDetails}
 
 【限制规则】：
-1. 必须完全体现密室谈判的谨慎与拉扯感，不要急于答应。
-2. 保持字数在 2-4 句话以内，极富实体陪伴的沉浸体验，绝对禁止出现任何表情符号（Emoji）。
+1. 保持字数在 120-150 字以内，文笔富有张力和陪伴感，契合密室博弈。
+2. 绝对禁止使用任何 Emoji 图标。
 `;
 
     const chatPayload = [{ role: "system", content: systemPrompt }];
@@ -304,23 +316,24 @@ ${worldbookText}
       const res = await roche.ai.chat({ messages: chatPayload, temperature: 0.85 });
       typingBubble.remove();
 
-      const charMsg = { id: `msg-char-${Date.now()}`, sender: "char", text: res.text || "……", timestamp: Date.now() };
+      const replyText = res.text || "……";
+      const charMsg = { id: `msg-char-${Date.now()}`, sender: "char", text: replyText, timestamp: Date.now() };
       messages.push(charMsg);
       rsa.state.chats[item.id] = messages;
       await exports.saveData();
 
       const replyBubble = document.createElement("div");
       replyBubble.className = "rsa-msg-bubble rsa-msg-received";
-      replyBubble.textContent = res.text;
+      replyBubble.textContent = replyText;
       messagesContainer.appendChild(replyBubble);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     } catch (e) {
       typingBubble.remove();
-      roche.ui.toast("AI 包间对话被屏障阻挡，请检查连接");
+      roche.ui.toast(`AI 对话被阻断: ${e.message || e}`);
     }
   };
 
-  // 7. 询问是否可以交易 (AI 契约达成研判)
+  // 8. 询问是否可以交易 (小说文体评判 + 禁止替user行动)
   exports.askForDealDecision = async function(item, messages) {
     const roche = rsa.roche;
     const chatHistoryText = messages.map(m => `${m.sender === "user" ? "用户" : "角色"}: ${m.text}`).join("\n");
@@ -335,16 +348,17 @@ ${worldbookText}
 【线下包厢密谈历史】：
 ${chatHistoryText}
 
-【决策逻辑】：
-根据上述对话深度、角色的人设与记忆羁绊，判定角色此时是否愿意信任用户并达成这笔线下契约交易。
-请在 JSON 中输出最终决议：
-1. 若同意交易，将 "decision" 写为 "agreed"，并写一段角色当场与用户敲定成交的致辞 "statement"（依然带有线下第三人称的动作描写，例如 他终于露出一丝释然的微笑，在契约书上按下了私章。）。
-2. 若拒绝，将 "decision" 写为 "refused"，并在 "statement" 里解释原因（比如：价格还没聊够、嫌用户诚意不足、态度不对等，并给出其动作细节描写）。
+【判定准则】：
+根据对话深度和态度，判定角色是否同意当场成交并签契。
+在 JSON 中输出你的决议：
+1. 若同意，"decision" 为 "agreed"；"statement" 为一段角色与用户当场签契成交的致辞。致辞必须使用小说文体，用第三人称描写角色的神态动作（用*包裹），且【严禁替 User 描写任何动作或代替User作答】。
+2. 若拒绝，"decision" 为 "refused"；"statement" 为解释为什么不够诚意，拒绝签约的声明（同样包含第三人称神态动作包裹描写，绝不替 User 做出任何行动）。
+3. 严格禁止出现任何 Emoji。
 
 请严格输出合法、无 markdown 包裹的 JSON 对象：
 {
   "decision": "agreed" 或 "refused",
-  "statement": "角色的成交致辞或拒绝声明(包含第三人称神态动作包裹描写)"
+  "statement": "小说文体的纯第三人称角色致辞或拒绝（严禁替User行动）"
 }
 `;
 
@@ -357,12 +371,12 @@ ${chatHistoryText}
       const parsed = cleanAndParseJSON(res.text);
       return parsed;
     } catch (e) {
-      console.error("契约评判失败", e);
-      return { decision: "refused", statement: "*对方微微侧过脸，避开了你的目光，似乎对当下的契约仍有些犹豫不决。*" };
+      console.error("契约评判失败：", e);
+      return { decision: "refused", statement: `*对方在烛光摇曳中微微垂下眼睑，轻轻转动着手中的墨笔，对当下的契约仍有些拿捏不定。* (错误明细: ${e.message})` };
     }
   };
 
-  // 8. 用户上架动态触发角色关系网联动评估
+  // 9. 用户上架动态触发角色关系网联动评估
   exports.triggerCharReactionToUserItem = async function(userItem) {
     if (rsa.state.allChars.length === 0) return;
 
@@ -384,8 +398,8 @@ ${charListInfo}
 请挑选一个最有可能对这件藏品产生强烈情绪的实际角色，并决策该角色的反应。请严格输出一个合法、无 markdown 包裹的 JSON 对象：
 {
   "charId": "选中的角色ID",
-  "reaction": "chat"（直接发起密闭私聊，希望能高价绕过大厅私下买断，需输入第一句开场白。符合密室谈判风格，包含第三人称动作描写，不要有 Emoji） 或 "bid"（直接在大厅抬价竞标）,
-  "message": "若为chat，写一段包厢首句问候，带有动作细节描写包裹，例如：*他端着香茗轻轻推开包厢门，在香薰飘拂中望向你手里物件。*",
+  "reaction": "chat"（直接发起密闭私聊，希望能高价绕过大厅私下买断，需输入第一句开场白。符合密室谈判小说风格，包含第三人称动作描写，不要有 Emoji，绝不代替User行动） 或 "bid"（直接在大厅抬价竞标）,
+  "message": "若为chat，写一段包厢首句问候，带有动作细节描写包裹，例如：*他端着香茗轻轻推开包厢门，在香薰飘拂中望向你手里的物件。*",
   "bidAmount": 若为bid，写抬价金额（须大于当前起拍底价，例如 ${userItem.currentBid + 300}）
 }
 `;
@@ -432,7 +446,7 @@ ${charListInfo}
     }
   };
 
-  // 9. 大厅“拉锯抬价”竞争
+  // 10. 大厅“拉锯抬价”竞争
   exports.triggerDynamicLobbyBiddingWar = function(itemId) {
     const item = rsa.state.items.find(i => i.id === itemId && i.status === "active");
     if (!item) return;
