@@ -15,7 +15,6 @@ const _state = {
 
 // ==================== 2. 扁平化核心数据逻辑 ====================
 
-// 自动生成角色初始挂牌物品
 function generateDefaultItems() {
   const defaultItems = [];
   if (_state.allChars && _state.allChars.length > 0) {
@@ -59,7 +58,6 @@ function generateDefaultItems() {
   return defaultItems;
 }
 
-// 加载数据
 async function loadData() {
   try {
     _state.allPersonas = (await _roche.persona.getUserPersonas()) || [];
@@ -84,7 +82,6 @@ async function loadData() {
   _state.chats = (await _roche.storage.get("auction_chats")) || {};
 }
 
-// 保存数据
 async function saveData() {
   await _roche.storage.set("auction_items", _state.items);
   await _roche.storage.set("auction_chats", _state.chats);
@@ -95,7 +92,6 @@ async function saveData() {
 
 // ==================== 3. 扁平化 UI 渲染与交互 ====================
 
-// 选择 User 面具的弹窗
 function renderPersonaPickerModal(isForce = false) {
   const overlay = document.createElement("div");
   overlay.className = "rsa-overlay";
@@ -147,7 +143,6 @@ function renderPersonaPickerModal(isForce = false) {
   return overlay;
 }
 
-// 顶部栏
 function renderHeader() {
   const header = document.createElement("header");
   header.className = "rsa-header";
@@ -192,7 +187,6 @@ function renderHeader() {
   return header;
 }
 
-// 底部栏
 function renderNavBar() {
   const nav = document.createElement("nav");
   nav.className = "rsa-nav";
@@ -233,7 +227,6 @@ function renderNavBar() {
   return nav;
 }
 
-// 模拟加价
 function triggerSimulatedBidding(itemId) {
   if (_bidSimulationTimer) {
     clearTimeout(_bidSimulationTimer);
@@ -262,7 +255,6 @@ function triggerSimulatedBidding(itemId) {
   }, delay);
 }
 
-// 渲染大厅
 function renderAuctionCenter() {
   const root = document.createElement("div");
   const grid = document.createElement("div");
@@ -372,7 +364,6 @@ function renderAuctionCenter() {
   return root;
 }
 
-// 消息列表
 function renderMessagesList() {
   const root = document.createElement("div");
   root.className = "rsa-chat-list";
@@ -398,7 +389,7 @@ function renderMessagesList() {
     const chatItem = document.createElement("div");
     chatItem.className = "rsa-chat-item";
     chatItem.innerHTML = `
-      <img class="rsa-avatar" src="${item.sellerAvatar || 'data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%23e1e1e1\"/><circle cx=\"12\" cy=\"12\" r=\"8\" fill=\"%23999999\"/></svg>'}" style="width: 44px; height: 44px;" />
+      <img class="rsa-avatar-large" src="${item.sellerAvatar || 'data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%23e1e1e1\"/><circle cx=\"12\" cy=\"12\" r=\"8\" fill=\"%23999999\"/></svg>'}" />
       <div class="rsa-chat-detail">
         <div class="rsa-chat-header">
           <span class="rsa-chat-name">${item.sellerName} <span style="font-weight: normal; font-size: 11px; color: #8e8e8e;">(关于: ${item.title})</span></span>
@@ -419,7 +410,6 @@ function renderMessagesList() {
   return root;
 }
 
-// 模拟 AI 回复
 async function getAIReplyForAuction(item, messages, messagesContainer) {
   let charPersona = "";
   let memoryText = "";
@@ -521,7 +511,6 @@ ${memoryText}
   }
 }
 
-// 渲染聊天窗
 async function renderChatWindow(itemId) {
   const root = document.createElement("div");
   root.className = "rsa-chat-window";
@@ -607,7 +596,6 @@ async function renderChatWindow(itemId) {
   return root;
 }
 
-// 我的
 function renderMineTab() {
   const root = document.createElement("div");
 
@@ -702,14 +690,12 @@ function renderMineTab() {
   return root;
 }
 
-// 统一的全局全量渲染调度函数（完全脱离 this）
 async function renderAll() {
   _container.innerHTML = "";
 
   const appEl = document.createElement("div");
   appEl.className = "rsa-container";
 
-  // 强制用户选择面具
   if (!_state.activePersona && _state.allPersonas.length > 0) {
     appEl.appendChild(renderPersonaPickerModal(true));
     _container.appendChild(appEl);
@@ -745,19 +731,460 @@ async function renderAll() {
 window.RochePlugin.register({
   id: "roche-seller-auction",
   name: "Roche 拍卖会",
-  version: "1.0.2",
+  version: "1.0.3",
   apps: [
     {
       id: "roche-seller-auction-home",
       name: "拍卖会",
       icon: "shopping_bag",
       async mount(container, roche) {
-        // 挂载实例到外部作用域变量
+        // 动态注入样式，锁定大图
+        const styleId = "roche-seller-auction-styles";
+        if (!document.getElementById(styleId)) {
+          const style = document.createElement("style");
+          style.id = styleId;
+          style.innerHTML = `
+            .rsa-container {
+              display: flex;
+              flex-direction: column;
+              height: 100%;
+              width: 100%;
+              background-color: #fafafa;
+              color: #262626;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+              box-sizing: border-box;
+              position: relative;
+            }
+            .rsa-container *, .rsa-container *::before, .rsa-container *::after {
+              box-sizing: border-box;
+            }
+            /* 顶部栏 */
+            .rsa-header {
+              height: 54px;
+              background-color: #ffffff;
+              border-bottom: 1px solid #dbdbdb;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding: 0 16px;
+              position: sticky;
+              top: 0;
+              z-index: 10;
+            }
+            .rsa-logo {
+              font-size: 18px;
+              font-weight: 700;
+              letter-spacing: 1px;
+              text-transform: uppercase;
+              color: #262626;
+            }
+            .rsa-header-actions {
+              display: flex;
+              align-items: center;
+              gap: 12px;
+            }
+            .rsa-header-btn {
+              background: none;
+              border: none;
+              cursor: pointer;
+              padding: 4px;
+              display: flex;
+              align-items: center;
+              color: #262626;
+            }
+            /* 主体内容区 */
+            .rsa-body {
+              flex: 1;
+              overflow-y: auto;
+              padding-bottom: 70px;
+            }
+            /* 底栏导航 */
+            .rsa-nav {
+              position: absolute;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              height: 56px;
+              background-color: #ffffff;
+              border-top: 1px solid #dbdbdb;
+              display: flex;
+              justify-content: space-around;
+              align-items: center;
+              z-index: 10;
+            }
+            .rsa-nav-item {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              background: none;
+              border: none;
+              cursor: pointer;
+              color: #8e8e8e;
+              font-size: 10px;
+              padding: 6px 0;
+              width: 33.3%;
+              transition: color 0.2s ease;
+            }
+            .rsa-nav-item.active {
+              color: #262626;
+            }
+            .rsa-nav-icon {
+              width: 24px;
+              height: 24px;
+              fill: currentColor;
+              margin-bottom: 2px;
+            }
+            /* 拍卖大厅列表 */
+            .rsa-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+              gap: 16px;
+              padding: 16px;
+            }
+            .rsa-card {
+              background-color: #ffffff;
+              border: 1px solid #dbdbdb;
+              border-radius: 8px;
+              overflow: hidden;
+              display: flex;
+              flex-direction: column;
+            }
+            .rsa-card-header {
+              display: flex;
+              align-items: center;
+              padding: 12px;
+              border-bottom: 1px solid #f0f0f0;
+            }
+            
+            /* ==================== 头像强约束安全机制 ==================== */
+            .rsa-avatar {
+              width: 32px !important;
+              height: 32px !important;
+              min-width: 32px !important;
+              min-height: 32px !important;
+              flex-shrink: 0 !important;
+              border-radius: 50% !important;
+              background-color: #efefef !important;
+              margin-right: 10px !important;
+              object-fit: cover !important;
+              border: 1px solid #dbdbdb !important;
+              display: block !important;
+            }
+            .rsa-avatar-large {
+              width: 44px !important;
+              height: 44px !important;
+              min-width: 44px !important;
+              min-height: 44px !important;
+              flex-shrink: 0 !important;
+              border-radius: 50% !important;
+              background-color: #efefef !important;
+              margin-right: 12px !important;
+              object-fit: cover !important;
+              border: 1px solid #dbdbdb !important;
+              display: block !important;
+            }
+            .rsa-profile-avatar {
+              width: 72px !important;
+              height: 72px !important;
+              min-width: 72px !important;
+              min-height: 72px !important;
+              flex-shrink: 0 !important;
+              border-radius: 50% !important;
+              background-color: #efefef !important;
+              object-fit: cover !important;
+              border: 1px solid #dbdbdb !important;
+              display: block !important;
+            }
+            /* ========================================================== */
+
+            .rsa-seller-info {
+              display: flex;
+              flex-direction: column;
+            }
+            .rsa-seller-name {
+              font-size: 13px;
+              font-weight: 600;
+            }
+            .rsa-seller-tag {
+              font-size: 10px;
+              color: #8e8e8e;
+            }
+            .rsa-card-img-placeholder {
+              height: 180px;
+              background: linear-gradient(45deg, #f3f3f3 25%, #ececec 25%, #ececec 50%, #f3f3f3 50%, #f3f3f3 75%, #ececec 75%, #ececec 100%);
+              background-size: 40px 40px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: #c7c7c7;
+              border-bottom: 1px solid #f0f0f0;
+            }
+            .rsa-card-content {
+              padding: 14px;
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+              flex: 1;
+            }
+            .rsa-item-title {
+              font-size: 15px;
+              font-weight: 600;
+            }
+            .rsa-item-desc {
+              font-size: 13px;
+              color: #555;
+              line-height: 1.4;
+            }
+            .rsa-bid-row {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-top: 10px;
+              padding-top: 10px;
+              border-top: 1px solid #f0f0f0;
+            }
+            .rsa-bid-info {
+              display: flex;
+              flex-direction: column;
+            }
+            .rsa-bid-label {
+              font-size: 10px;
+              color: #8e8e8e;
+              text-transform: uppercase;
+            }
+            .rsa-bid-price {
+              font-size: 16px;
+              font-weight: 700;
+              color: #262626;
+            }
+            .rsa-btn {
+              background-color: #000000;
+              color: #ffffff;
+              border: none;
+              padding: 8px 16px;
+              border-radius: 4px;
+              font-size: 12px;
+              font-weight: 600;
+              cursor: pointer;
+              transition: opacity 0.2s ease;
+            }
+            .rsa-btn:hover {
+              opacity: 0.8;
+            }
+            .rsa-btn-outline {
+              background-color: transparent;
+              color: #262626;
+              border: 1px solid #dbdbdb;
+            }
+            .rsa-btn-group {
+              display: flex;
+              gap: 6px;
+            }
+            /* 消息页面 */
+            .rsa-chat-list {
+              display: flex;
+              flex-direction: column;
+              padding: 8px 0;
+            }
+            .rsa-chat-item {
+              display: flex;
+              align-items: center;
+              padding: 12px 16px;
+              border-bottom: 1px solid #f0f0f0;
+              cursor: pointer;
+              transition: background-color 0.2s;
+            }
+            .rsa-chat-item:hover {
+              background-color: #f5f5f5;
+            }
+            .rsa-chat-detail {
+              flex: 1;
+              display: flex;
+              flex-direction: column;
+              gap: 4px;
+            }
+            .rsa-chat-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .rsa-chat-name {
+              font-size: 14px;
+              font-weight: 600;
+            }
+            .rsa-chat-time {
+              font-size: 11px;
+              color: #8e8e8e;
+            }
+            .rsa-chat-preview {
+              font-size: 12px;
+              color: #8e8e8e;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+            /* 聊天框 */
+            .rsa-chat-window {
+              display: flex;
+              flex-direction: column;
+              height: 100%;
+              background-color: #ffffff;
+            }
+            .rsa-chat-messages {
+              flex: 1;
+              overflow-y: auto;
+              padding: 16px;
+              display: flex;
+              flex-direction: column;
+              gap: 12px;
+            }
+            .rsa-msg-bubble {
+              max-width: 75%;
+              padding: 10px 14px;
+              border-radius: 18px;
+              font-size: 14px;
+              line-height: 1.4;
+              word-break: break-all;
+            }
+            .rsa-msg-received {
+              align-self: flex-start;
+              background-color: #efefef;
+              color: #262626;
+              border-bottom-left-radius: 4px;
+            }
+            .rsa-msg-sent {
+              align-self: flex-end;
+              background-color: #000000;
+              color: #ffffff;
+              border-bottom-right-radius: 4px;
+            }
+            .rsa-chat-input-area {
+              display: flex;
+              align-items: center;
+              padding: 12px 16px;
+              border-top: 1px solid #dbdbdb;
+              background-color: #ffffff;
+            }
+            .rsa-input {
+              flex: 1;
+              border: 1px solid #dbdbdb;
+              border-radius: 20px;
+              padding: 10px 16px;
+              font-size: 14px;
+              outline: none;
+              margin-right: 10px;
+            }
+            /* 我的 页面 */
+            .rsa-profile-header {
+              padding: 24px 16px;
+              background-color: #ffffff;
+              border-bottom: 1px solid #dbdbdb;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              text-align: center;
+              gap: 12px;
+            }
+            /* 表单 */
+            .rsa-form {
+              background-color: #ffffff;
+              border: 1px solid #dbdbdb;
+              border-radius: 8px;
+              padding: 16px;
+              margin: 16px;
+              display: flex;
+              flex-direction: column;
+              gap: 12px;
+            }
+            .rsa-form-title {
+              font-size: 15px;
+              font-weight: 600;
+              margin-bottom: 4px;
+              border-bottom: 1px solid #f0f0f0;
+              padding-bottom: 8px;
+            }
+            .rsa-form-group {
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+            }
+            .rsa-form-label {
+              font-size: 12px;
+              font-weight: 600;
+              color: #262626;
+            }
+            .rsa-form-input {
+              border: 1px solid #dbdbdb;
+              border-radius: 4px;
+              padding: 8px 12px;
+              font-size: 13px;
+              outline: none;
+            }
+            /* 空状态 */
+            .rsa-empty {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              padding: 48px 16px;
+              color: #8e8e8e;
+              text-align: center;
+              font-size: 14px;
+            }
+            /* 遮罩及弹窗 */
+            .rsa-overlay {
+              position: fixed;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              background-color: rgba(0,0,0,0.5);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              z-index: 100;
+              padding: 16px;
+            }
+            .rsa-modal {
+              background-color: #ffffff;
+              border-radius: 12px;
+              width: 100%;
+              max-width: 400px;
+              max-height: 80vh;
+              overflow-y: auto;
+              display: flex;
+              flex-direction: column;
+            }
+            .rsa-modal-header {
+              padding: 16px;
+              font-weight: 600;
+              border-bottom: 1px solid #dbdbdb;
+              text-align: center;
+            }
+            .rsa-modal-list {
+              display: flex;
+              flex-direction: column;
+            }
+            .rsa-modal-item {
+              display: flex;
+              align-items: center;
+              padding: 12px 16px;
+              border-bottom: 1px solid #f0f0f0;
+              cursor: pointer;
+              transition: background-color 0.2s;
+            }
+            .rsa-modal-item:hover {
+              background-color: #f9f9f9;
+            }
+          `;
+          document.head.appendChild(style);
+        }
+
         _container = container;
         _roche = roche;
         _bidSimulationTimer = null;
 
-        // 加载并渲染（直接调用外层扁平函数，100% 避开 this 调用）
         await loadData();
         await renderAll();
       },
