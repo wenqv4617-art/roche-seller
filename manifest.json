@@ -1,10 +1,10 @@
 {
   "id": "roche-seller-auction",
   "name": "Roche 拍卖会",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "极简 Ins 风格的私密拍卖与角色交互中心。支持上架物品、出价竞拍、与角色进行私密估价与讨价还价（不污染宿主记忆）。",
   "author": "wenqv4617-art",
-  "entry": "https://raw.githubusercontent.com/wenqv4617-art/roche-seller/main/plugin.js",
+  "entry": "https://raw.githubusercontent.com/wenqv4617-art/roche-seller/main/plugin.js?v=1.0.2",
   "hash": "",
   "permissions": [
     "persona:read",
