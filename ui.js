@@ -2,7 +2,7 @@
 (function(exports) {
   const rsa = window.RocheSellerAuction;
 
-  // 1. 注入样式
+  // 1. 注入 Ins 极简白与黑奢华风格样式
   exports.injectStyles = function() {
     const styleId = "roche-seller-auction-styles";
     if (document.getElementById(styleId)) return;
@@ -61,11 +61,17 @@
       .rsa-header-btn:hover {
         opacity: 0.6;
       }
+      
+      /* 主体容器边距优化：包间内与大厅完全物理隔离 */
       .rsa-body {
         flex: 1;
         overflow-y: auto;
-        padding-bottom: 70px;
+        padding-bottom: 76px; /* 大厅保留高边距，避让底部 Tab 栏 */
       }
+      .rsa-body.rsa-body-chat {
+        padding-bottom: 16px !important; /* 包间缩减为空白边距，完美避让手机自带三键导航，极度贴合下底 */
+      }
+
       .rsa-nav {
         position: absolute;
         bottom: 0;
@@ -369,22 +375,38 @@
         color: #ffffff;
         border-bottom-right-radius: 2px;
       }
+      
+      /* ==================== 自由多行文本输入框 CSS 优化 ==================== */
       .rsa-chat-input-area {
         display: flex;
-        align-items: center;
+        align-items: flex-end; /* 按键和输入域底部对齐，实现多行拉伸时的自然排版 */
         border-top: 1px solid #dbdbdb;
         background-color: #ffffff;
         padding: 12px 16px;
         gap: 8px;
+        width: 100%;
       }
       .rsa-input {
         flex: 1;
         border: 1px solid #dbdbdb;
-        border-radius: 20px;
-        padding: 10px 16px;
+        border-radius: 12px; /* 圆角略微收窄符合多行设计 */
+        padding: 10px 14px;
         font-size: 13px;
+        line-height: 1.4;
         outline: none;
+        resize: none; /* 禁用用户右下角手动拖拽拉伸 */
+        height: 38px;
+        min-height: 38px;
+        max-height: 120px; /* 限制自适应的最大高度，超出可在其内部滚动 */
+        font-family: inherit;
+        background-color: #ffffff;
+        transition: border-color 0.2s;
       }
+      .rsa-input:focus {
+        border-color: #111111;
+      }
+      /* ========================================================== */
+
       .rsa-profile-header {
         padding: 30px 16px;
         background-color: #ffffff;
@@ -775,7 +797,7 @@
               rsa.state.biddingWars[item.id].active = false;
             }
             await rsa.api.saveData();
-            rsa.roche.ui.toast(`交易完成！成功售出藏品！`);
+            rsa.roche.ui.toast("交易完成！成功售出藏品！");
             await exports.renderAll();
           }
         };
@@ -788,7 +810,7 @@
     return root;
   };
 
-  // 2. 包间谈判对话历史 (预览消息严格限制为 15 字，超长截断)
+  // 2. 包间谈判对话历史 (超长自动截断为 15 字)
   exports.renderMessagesList = function() {
     const root = document.createElement("div");
     root.className = "rsa-chat-list";
@@ -812,7 +834,6 @@
       const history = chatData ? (chatData.messages || []) : [];
       const lastMsg = history[history.length - 1] || { text: "包间虚位以待...", timestamp: Date.now() };
 
-      // 核心限制：最后一条预览消息，只显示前 15 个字
       let previewText = lastMsg.text || "";
       if (previewText.length > 15) {
         previewText = previewText.substring(0, 15) + "...";
@@ -854,7 +875,7 @@
     return root;
   };
 
-  // 3. VIP包间对话框渲染 (点击细诉即刻请求，绝无延迟)
+  // 3. VIP包间对话框渲染 (优化：使用 textarea 自由输入换行，彻底移去回车发送，增加高度自适应)
   exports.renderChatWindow = async function(itemId) {
     const root = document.createElement("div");
     root.className = "rsa-chat-window";
@@ -923,24 +944,25 @@
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }, 100);
 
+    // 自由文本优化：改为 textarea 标签，支持 Enter 自由换行，只有点击右侧“细诉”才发送并请求 API
     const inputArea = document.createElement("div");
     inputArea.className = "rsa-chat-input-area";
     inputArea.innerHTML = `
-      <input class="rsa-input" type="text" placeholder="${isSold ? '该契约已生效签字。' : '线下低声对答 negotiations...'}" ${isSold ? 'disabled' : ''} id="rsa-chat-field" />
-      <button class="rsa-btn" id="rsa-chat-send" ${isSold ? 'disabled' : ''} style="border-radius: 20px; padding:8px 20px;">细诉</button>
+      <textarea class="rsa-input" placeholder="${isSold ? '该契约已生效签字。' : '线下低声对答 negotiations...'}" ${isSold ? 'disabled' : ''} id="rsa-chat-field"></textarea>
+      <button class="rsa-btn" id="rsa-chat-send" ${isSold ? 'disabled' : ''} style="border-radius: 20px; padding:8px 18px; flex-shrink: 0; height: 38px;">细诉</button>
     `;
 
     root.appendChild(messagesContainer);
     root.appendChild(inputArea);
     root.insertBefore(document.createRange().createContextualFragment(negotiationHeaderHtml), messagesContainer);
 
-    // 绑定事件
+    // 绑定成交、拒绝、及交易判定行为
     const acceptEl = root.querySelector("#rsa-deal-accept");
     if (acceptEl) {
       acceptEl.onclick = async () => {
         const confirm = await rsa.roche.ui.confirm({
           title: "签署线下契约",
-          message: `确定要以议价 ¥${item.currentBid} 直接卖给【${opponentName}】吗？`
+          message: `确定以议价 ¥${item.currentBid} 直接卖给【${opponentName}】吗？`
         });
         if (confirm) {
           item.status = "sold";
@@ -1023,12 +1045,21 @@
     const sendField = inputArea.querySelector("#rsa-chat-field");
     const sendBtn = inputArea.querySelector("#rsa-chat-send");
 
-    // 核心改进：点击“细诉”立刻获取回复
+    // 高度动态自适应监听器（Textarea Auto-Resize）
+    if (sendField && !isSold) {
+      sendField.addEventListener("input", function() {
+        this.style.height = "auto";
+        // scrollHeight 会实时返回其所需的实际像素高度，以此动态伸展
+        this.style.height = this.scrollHeight + "px";
+      });
+    }
+
     const sendMessageFunc = async () => {
       const text = sendField.value.trim();
       if (!text || isSold) return;
 
       sendField.value = "";
+      sendField.style.height = "38px"; // 发送后重置为单行初始高度
 
       const userMsg = { id: `msg-user-${Date.now()}`, sender: "user", text: text, timestamp: Date.now() };
       messages.push(userMsg);
@@ -1048,16 +1079,10 @@
       messagesContainer.appendChild(userBubble);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-      // 实时且立刻触发 AI 的后半包间小说式回复
       await rsa.api.getAIReplyForAuction(item, messages, messagesContainer);
     };
 
     if (sendBtn) sendBtn.onclick = sendMessageFunc;
-    if (sendField) {
-      sendField.onkeydown = (e) => {
-        if (e.key === "Enter") sendMessageFunc();
-      };
-    }
 
     return root;
   };
@@ -1182,7 +1207,7 @@
     const listContainer = modal.querySelector("#rsa-modal-personas");
 
     if (rsa.state.allPersonas.length === 0) {
-      listContainer.innerHTML = `<div class="rsa-empty" style="padding: 24px;">未检测到可用的 User 人设，请先在宿主中创建人设。</div>`;
+      listContainer.innerHTML = `<div class="rsa-empty">未检测到可用的 User 人设，请先在宿主中创建人设。</div>`;
     } else {
       rsa.state.allPersonas.forEach(persona => {
         const item = document.createElement("div");
@@ -1217,7 +1242,7 @@
     return overlay;
   };
 
-  // 全局渲染调度
+  // 全局渲染调度（优化：当处于后室密谈时，自动为内容容器追加 .rsa-body-chat 减小下底留白）
   exports.renderAll = async function() {
     rsa.container.innerHTML = "";
 
@@ -1251,8 +1276,11 @@
     bodyEl.className = "rsa-body";
 
     if (rsa.state.activeChatId) {
+      // 处于密谈状态下，动态追加 .rsa-body-chat 属性类，将边距硬性缩短为 16px 避让手机底栏
+      bodyEl.className = "rsa-body rsa-body-chat";
       bodyEl.appendChild(await exports.renderChatWindow(rsa.state.activeChatId));
     } else {
+      bodyEl.className = "rsa-body";
       if (rsa.state.activeTab === "auction") {
         bodyEl.appendChild(exports.renderAuctionCenter());
       } else if (rsa.state.activeTab === "messages") {
