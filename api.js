@@ -1,10 +1,21 @@
-// 挂载至全局 api 空间
+// ==================== AI 智能生成与决策层 ====================
 (function(exports) {
-  
-  // 世界书挂载
+  // 安全地在文件作用域顶部获取全局共享命名空间，彻底解决 ReferenceError 问题
+  const rsa = window.RocheSellerAuction;
+
+  // 1. 预设高品质备用 NPC 表单（用于托底和格式修补）
+  const _backupNpcs = [
+    { id: "npc-gu-qing", name: "顾清", bio: "古画修复师，能从斑驳墨迹中感知时光执念。", initials: "顾" },
+    { id: "npc-quinn", name: "奎恩", bio: "荒原拾荒人，专注于寻找旧时代机械废墟里的精密遗物。", initials: "奎" },
+    { id: "npc-lilith", name: "莉莉丝", bio: "赛博义肢买办，偏好微缩齿轮和电磁能量块。", initials: "莉" },
+    { id: "npc-reyn", name: "雷恩", bio: "帝国旧教官，醉心于冷兵器与古战场秘辛。", initials: "雷" },
+    { id: "npc-shiya", name: "希雅", bio: "迷途的灵修学者，致力于解析精神共鸣与灵魂本质。", initials: "希" }
+  ];
+
+  // 2. 世界书加载与挂载
   exports.loadWorldbookText = async function() {
     try {
-      const entries = await window.RocheSellerAuction.roche.worldbook.getEntries({ scope: "global" });
+      const entries = await rsa.roche.worldbook.getEntries({ scope: "global" });
       if (entries && entries.length > 0) {
         return entries.map(e => `【${e.trigger || e.name}】：${e.content}`).join("\n");
       }
@@ -14,11 +25,9 @@
     return "暂无全局世界设定。";
   };
 
-  // 基础存取
+  // 3. 数据存取
   exports.loadData = async function() {
-    const rsa = window.RocheSellerAuction;
     const roche = rsa.roche;
-
     try {
       rsa.state.allPersonas = (await roche.persona.getUserPersonas()) || [];
       rsa.state.allChars = (await roche.character.list()) || [];
@@ -45,7 +54,6 @@
   };
 
   exports.saveData = async function() {
-    const rsa = window.RocheSellerAuction;
     const roche = rsa.roche;
     await roche.storage.set("auction_items", rsa.state.items);
     await roche.storage.set("auction_chats", rsa.state.chats);
@@ -56,9 +64,63 @@
     }
   };
 
-  // 1. 纯动态 NPC 产生 & 刷新大厅
+  // 4. 默认兜底本地拍卖品生成
+  function generateDefaultItems() {
+    const defaultItems = [];
+    
+    // 主线角色基础商品
+    if (rsa.state.allChars && rsa.state.allChars.length > 0) {
+      rsa.state.allChars.forEach((char, index) => {
+        const charName = char.name || char.handle || "神秘客";
+        defaultItems.push({
+          id: `item-char-${char.id}-${index}`,
+          title: `${charName}随身携带的旧挂饰`,
+          description: `带有${charName}过往故事的古朴小挂饰。在阳光下折射出淡淡的铜锈色，似乎包含一段宿主未曾得知的温暖回忆。`,
+          sellerId: char.id,
+          sellerName: charName,
+          sellerAvatar: char.avatar || "",
+          isNpc: false,
+          isUserItem: false,
+          currentBid: 1500,
+          highestBidderName: "系统保留",
+          status: "active",
+          createdAt: Date.now() - (index * 3600000)
+        });
+      });
+    }
+
+    // 托底混合 NPC 预设商品
+    _backupNpcs.forEach((npc, idx) => {
+      const npcKey = `${npc.id}-${idx}`;
+      
+      // 写入注册表，防崩
+      rsa.state.npcRegistry[npcKey] = {
+        name: npc.name,
+        bio: npc.bio,
+        avatar: `data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="%232c3e50"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="10" font-family="sans-serif">${npc.initials}</text></svg>`
+      };
+
+      defaultItems.push({
+        id: `item-npc-${npc.id}-${idx}`,
+        title: idx === 0 ? "未被解译的纯黑手抄本" : (idx === 1 ? "精密黑盒遗物" : "发光的深海晶核"),
+        description: idx === 0 ? "一部纸页完全泛黑的怪诞书籍，上面的符号不属于任何已知的人类文明语系。" : (idx === 1 ? "布满齿轮纹路的秘银铁盒，靠近时能隐约听到内部精密的齿轮卡扣转动声。" : "散发着淡蓝色微光的奇特矿晶，捧在手心能感受到类似潮汐波动的微弱脉搏。"),
+        sellerId: npcKey,
+        sellerName: npc.name,
+        sellerAvatar: rsa.state.npcRegistry[npcKey].avatar,
+        isNpc: true,
+        isUserItem: false,
+        currentBid: 2800 + (idx * 300),
+        highestBidderName: "暂无",
+        status: "active",
+        createdAt: Date.now()
+      });
+    });
+
+    return defaultItems;
+  }
+
+  // 5. 纯动态 NPC 产生 & 刷新大厅（含强制格式清洗）
   exports.triggerAIRefreshItems = async function() {
-    const rsa = window.RocheSellerAuction;
     if (rsa.isRefreshing) return;
     rsa.isRefreshing = true;
     rsa.roche.ui.toast("AI 正在重组大厅并随机生成买家NPC...");
@@ -66,10 +128,7 @@
     const worldbookText = await exports.loadWorldbookText();
     const charListInfo = rsa.state.allChars.map(c => `- ID: ${c.id}, 名字: ${c.name || c.handle}, 设定: ${c.persona || c.bio || ""}`).join("\n");
 
-    const npcNameTemplates = [
-      "古画修复师 顾清", "赛博义肢买办 莉莉丝", "黑市军火代理人 奎恩", 
-      "隐退的帝国教官 雷恩", "迷途的灵修学者 希雅", "深渊遗物猎手 凯恩"
-    ];
+    const npcNameTemplates = _backupNpcs.map(n => `${n.name} (${n.bio})`).join("、");
 
     const systemPrompt = `你是一个线上秘密拍卖行的商品与买家NPC规划AI。
 请结合世界书，生成 3-4 个全新的、且部分卖家是由你完全“随机动态构想生成的NPC”。
@@ -80,8 +139,8 @@ ${worldbookText}
 【当前可用的挂载真实角色】：
 ${charListInfo}
 
-【NPC 名字偏好范例（可作参考，更鼓励你自由构想符合世界观的名字）】：
-${npcNameTemplates.join(", ")}
+【NPC 名字与身份偏好参考（可作为基调进行自由扩散）】：
+${npcNameTemplates}
 
 【生成准则】：
 1. 生成 3-4 个拍卖品，这些商品中有一部分必须是由实际角色（Characters）提供的（注入其记忆），一部分是由完全随机由你构建的NPC提供的。
@@ -93,7 +152,7 @@ ${npcNameTemplates.join(", ")}
     "title": "物品名称",
     "description": "高品质的文学色彩描述。若是实际角色的物品，将人设关联记忆深度融入。",
     "sellerId": "实际角色的ID 或 随机NPC的唯一拼音ID(如 npc-gu-qing)",
-    "sellerName": "卖家名称",
+    "sellerName": "卖家名称（必须符合其中文名字或设定）",
     "isNpc": true或false(新生成的NPC写true),
     "npcBio": "如果是NPC，请写一段其执念、身份和偏好的极简简介（1-2句），实际角色写空字",
     "currentBid": 整数底价,
@@ -115,27 +174,42 @@ ${npcNameTemplates.join(", ")}
 
         parsed.forEach(item => {
           let avatar = "";
-          if (item.isNpc) {
-            // 将动态生成的 NPC 存入全局缓存
-            rsa.state.npcRegistry[item.sellerId] = {
-              name: item.sellerName,
-              bio: item.npcBio || "神秘的异乡客。",
-              avatar: `data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="%232c3e50"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="10" font-family="sans-serif">${item.sellerName.substring(0,1)}</text></svg>`
+          let sellerId = item.sellerId || "";
+          let sellerName = item.sellerName || "";
+          let npcBio = item.npcBio || "";
+          let isNpc = !!item.isNpc || sellerId.startsWith("npc-");
+
+          if (isNpc) {
+            // ==================== 托底与容错清洗 ====================
+            // 如果 AI 生成的 NPC 数据不规范，强制从中位托底库挑选一名匹配，防止因 sellerId 为空或格式错乱导致系统雪崩
+            if (!sellerId || !sellerName || !sellerId.startsWith("npc-")) {
+              const fallbackNpc = _backupNpcs[Math.floor(Math.random() * _backupNpcs.length)];
+              sellerId = `${fallbackNpc.id}-${Math.floor(Math.random() * 1000)}`;
+              sellerName = fallbackNpc.name;
+              npcBio = fallbackNpc.bio;
+            }
+
+            const initialLetter = sellerName.substring(0, 1) || "N";
+
+            rsa.state.npcRegistry[sellerId] = {
+              name: sellerName,
+              bio: npcBio || "神秘的竞买常客。",
+              avatar: `data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="%232c3e50"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="10" font-family="sans-serif">${initialLetter}</text></svg>`
             };
-            avatar = rsa.state.npcRegistry[item.sellerId].avatar;
+            avatar = rsa.state.npcRegistry[sellerId].avatar;
           } else {
-            const char = rsa.state.allChars.find(c => c.id === item.sellerId);
+            const char = rsa.state.allChars.find(c => c.id === sellerId);
             avatar = char ? (char.avatar || "") : "";
           }
 
           processedItems.push({
-            id: item.id,
-            title: item.title,
-            description: item.description,
-            sellerId: item.sellerId,
-            sellerName: item.sellerName,
+            id: item.id || `item-gen-${Date.now()}-${Math.random()}`,
+            title: item.title || "奇特的拍卖品",
+            description: item.description || "在暗处微微闪光的神秘物品。",
+            sellerId: sellerId,
+            sellerName: sellerName,
             sellerAvatar: avatar,
-            isNpc: !!item.isNpc,
+            isNpc: isNpc,
             isUserItem: false,
             currentBid: item.currentBid || 1000,
             highestBidderName: "暂无",
@@ -147,19 +221,23 @@ ${npcNameTemplates.join(", ")}
         rsa.state.items = [...userItems, ...processedItems];
         await exports.saveData();
         rsa.roche.ui.toast("拍卖品及NPC重组成功！");
+      } else {
+        throw new Error("AI 数据格式转换失败");
       }
     } catch (e) {
-      console.error("动态生成失败", e);
-      rsa.roche.ui.toast("AI 构造遇到一点阻塞，已使用本地缓存。");
+      console.error("动态生成失败，启动托底预设商品生成器：", e);
+      const userItems = rsa.state.items.filter(i => i.isUserItem);
+      rsa.state.items = [...userItems, ...generateDefaultItems()];
+      await exports.saveData();
+      rsa.roche.ui.toast("AI 构造繁忙，已为您无缝切换至预设托底商品。");
     } finally {
       rsa.isRefreshing = false;
       await rsa.ui.renderAll();
     }
   };
 
-  // 2. 线下 VIP 私密包间的深度对话 (第三人称行动描写)
+  // 6. 线下 VIP 私密包间的深度对话 (第三人称行动描写)
   exports.getAIReplyForAuction = async function(item, messages, messagesContainer) {
-    const rsa = window.RocheSellerAuction;
     const roche = rsa.roche;
 
     let charPersona = "";
@@ -188,10 +266,13 @@ ${npcNameTemplates.join(", ")}
     const systemPrompt = `你现在在扮演 Roche 里的角色【${item.sellerName}】。
 当前语境为：线下顶级秘密拍卖会的一间【奢华 VIP 密闭私人包间】。在这个极其私密的暗室里，你们正在面对面商讨关于藏品《${item.title}》的私下交易契约。
 
-【线下包间场景表现】：
-1. 你的叙事必须采用【第三人称限制性行动描写】（用*包裹），用户的行为是第一人称，而你对用户的称呼使用第二人称。
-2. 每次回复，请务必在一开头或一结尾插入一段对你自身神态、动作、所处包间光影变化的线下实体动作细节刻画。
-（例如：*他微微倾身，指尖在黄梨木桌面上留下一道浅浅的指痕，在烛火摇曳的阴影里端详着你。*，或者 *他合拢羽扇，动作极轻地将香薰炉挪到你面前。*）
+【包间场景叙事规则】
+
+1. 全篇采用第三人称限制性行动描写（用*包裹），只写他的肢体、视线、道具交互、环境光影变化。
+2. 每次回复开头或结尾允许插入一句他的神态/动作+包间环境细节，但仅此一句，不堆砌。
+3. 用户行为用第一人称呈现，对他的称呼统一用第二人称“你”。
+4. 对话要像真实线下叙述——有停顿、有语气、有动作间隙，不工整。
+5. 剩下全交给模型自行发挥，包括节奏、情绪氛围、叙事走向。
 
 【世界背景、人设及记忆轨迹】：
 ${worldbookText}
@@ -239,11 +320,9 @@ ${worldbookText}
     }
   };
 
-  // 3. 询问是否可以交易 (AI 契约达成研判)
+  // 7. 询问是否可以交易 (AI 契约达成研判)
   exports.askForDealDecision = async function(item, messages) {
-    const rsa = window.RocheSellerAuction;
     const roche = rsa.roche;
-
     const chatHistoryText = messages.map(m => `${m.sender === "user" ? "用户" : "角色"}: ${m.text}`).join("\n");
     const worldbookText = await exports.loadWorldbookText();
 
@@ -259,7 +338,7 @@ ${chatHistoryText}
 【决策逻辑】：
 根据上述对话深度、角色的人设与记忆羁绊，判定角色此时是否愿意信任用户并达成这笔线下契约交易。
 请在 JSON 中输出最终决议：
-1. 若同意交易，将 "decision" 写为 "agreed"，并写一段角色当场与用户敲定成交的致辞 "statement"（依然带有线下第三人称的*动作包裹*描写，例如 *他终于露出一丝释然的微笑，在契约书上按下了私章。*，致辞不带任何 Emoji）。
+1. 若同意交易，将 "decision" 写为 "agreed"，并写一段角色当场与用户敲定成交的致辞 "statement"（依然带有线下第三人称的动作描写，例如 他终于露出一丝释然的微笑，在契约书上按下了私章。）。
 2. 若拒绝，将 "decision" 写为 "refused"，并在 "statement" 里解释原因（比如：价格还没聊够、嫌用户诚意不足、态度不对等，并给出其动作细节描写）。
 
 请严格输出合法、无 markdown 包裹的 JSON 对象：
@@ -283,9 +362,8 @@ ${chatHistoryText}
     }
   };
 
-  // 4. 用户上架动态触发角色关系网联动评估
+  // 8. 用户上架动态触发角色关系网联动评估
   exports.triggerCharReactionToUserItem = async function(userItem) {
-    const rsa = window.RocheSellerAuction;
     if (rsa.state.allChars.length === 0) return;
 
     const worldbookText = await exports.loadWorldbookText();
@@ -307,7 +385,7 @@ ${charListInfo}
 {
   "charId": "选中的角色ID",
   "reaction": "chat"（直接发起密闭私聊，希望能高价绕过大厅私下买断，需输入第一句开场白。符合密室谈判风格，包含第三人称动作描写，不要有 Emoji） 或 "bid"（直接在大厅抬价竞标）,
-  "message": "若为chat，写一段包厢首句问候，带有动作细节描写包裹，例如：*他端着香茗轻轻推开包厢门，在香薰飘拂中望向你手里的物件。*",
+  "message": "若为chat，写一段包厢首句问候，带有动作细节描写包裹，例如：*他端着香茗轻轻推开包厢门，在香薰飘拂中望向你手里物件。*",
   "bidAmount": 若为bid，写抬价金额（须大于当前起拍底价，例如 ${userItem.currentBid + 300}）
 }
 `;
@@ -340,13 +418,10 @@ ${charListInfo}
           userItem.currentBid = bidPrice;
           userItem.highestBidderName = `${charName} (宿主角色)`;
           
-          // 初始化该商品的抬价拉锯战状态
           rsa.state.biddingWars[userItem.id] = { bids: 1, active: true };
           await exports.saveData();
 
           rsa.roche.ui.toast(`大厅：【${charName}】盯上了你的《${userItem.title}》，已在柜台抬价至 ¥${bidPrice}！`);
-          
-          // 自动启动用户商品的拉锯式多轮竞价行为
           exports.triggerDynamicLobbyBiddingWar(userItem.id);
         }
       }
@@ -357,9 +432,8 @@ ${charListInfo}
     }
   };
 
-  // 5. 大厅你起我伏的“拉锯抬价”博弈算法（针对用户挂牌商品）
+  // 9. 大厅“拉锯抬价”竞争
   exports.triggerDynamicLobbyBiddingWar = function(itemId) {
-    const rsa = window.RocheSellerAuction;
     const item = rsa.state.items.find(i => i.id === itemId && i.status === "active");
     if (!item) return;
 
@@ -370,11 +444,9 @@ ${charListInfo}
     }
 
     if (!war.active || war.bids >= 6) {
-      // 达到博弈加价瓶颈，没有人敢继续乱加价了，等待用户做抉择
       return;
     }
 
-    // 每一轮抬价间隔 6 - 12 秒，模拟多位买家举牌拉锯过程
     const delay = Math.floor(Math.random() * 6000) + 6000;
     setTimeout(async () => {
       const liveItem = rsa.state.items.find(i => i.id === itemId && i.status === "active");
@@ -382,9 +454,8 @@ ${charListInfo}
 
       war.bids += 1;
 
-      // 1. 挑选竞争对手（随机是其他 Character 或 AI NPC）
       let competitorName = "神秘竞标散客";
-      const useNpc = Math.random() > 0.4; // 60% 概率引入动态生成的 NPC 进行抬价
+      const useNpc = Math.random() > 0.4;
 
       if (useNpc && Object.keys(rsa.state.npcRegistry).length > 0) {
         const npcKeys = Object.keys(rsa.state.npcRegistry);
@@ -395,13 +466,12 @@ ${charListInfo}
         competitorName = randomChar.handle || randomChar.name;
       }
 
-      // 如果当前最高出价是这个竞争对手自己，说明没人顶Ta，无需加价
       if (liveItem.highestBidderName === competitorName) {
-        exports.triggerDynamicLobbyBiddingWar(itemId); // 递归，换下一轮加价
+        exports.triggerDynamicLobbyBiddingWar(itemId);
         return;
       }
 
-      const increment = Math.floor(Math.random() * 4 + 1) * 100; // 增加 100 - 400
+      const increment = Math.floor(Math.random() * 4 + 1) * 100;
       liveItem.currentBid += increment;
       liveItem.highestBidderName = competitorName;
 
@@ -409,14 +479,12 @@ ${charListInfo}
       rsa.roche.ui.toast(`举牌：【${competitorName}】在大厅与其他人竞逐，对《${liveItem.title}》加价到 ¥${liveItem.currentBid}！`);
       await rsa.ui.renderAll();
 
-      // 2. 判定高热度拉锯是否可以继续
-      const peakChance = war.bids * 0.15; // 轮数越多，散伙/停止竞价的概率越高 (最高90%)
+      const peakChance = war.bids * 0.15;
       if (Math.random() < peakChance) {
         war.active = false;
         await exports.saveData();
         rsa.roche.ui.toast(`高台：大厅对你的《${liveItem.title}》的竞争已进入白热化顶峰！买家正在等待你进行【一锤定音】。`);
       } else {
-        // 继续拉锯
         exports.triggerDynamicLobbyBiddingWar(itemId);
       }
     }, delay);
