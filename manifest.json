@@ -1,10 +1,10 @@
 {
   "id": "roche-seller-auction",
   "name": "Roche 拍卖会",
-  "version": "1.1.1",
-  "description": "极简 Ins 风格。支持 AI 生成商品、AI NPC 竞买、全局世界书挂载、以及用户上架后触发主线角色私聊与竞标关系网联动。",
+  "version": "1.2.0",
+  "description": "沉浸式跑商博弈。支持 AI 动态 NPC、大厅拉锯竞标、一锤定音决策、线下 VIP 密室谈判以及全局世界书深度对齐。",
   "author": "wenqv4617-art",
-  "entry": "https://raw.githubusercontent.com/wenqv4617-art/roche-seller/main/plugin.js?v=1.1.1",
+  "entry": "https://raw.githubusercontent.com/wenqv4617-art/roche-seller/main/plugin.js?v=1.2.0",
   "hash": "",
   "permissions": [
     "persona:read",
