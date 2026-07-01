@@ -82,7 +82,7 @@ async function saveData() {
   }
 }
 
-// 本地默认兜底商品（在 AI 接口未配置或连接失败时使用）
+// 本地默认兜底商品
 function generateDefaultItems() {
   const defaultItems = [];
   if (_state.allChars && _state.allChars.length > 0) {
@@ -160,7 +160,7 @@ ${npcListInfo}
     "sellerId": "对应的角色ID 或 对应的NPC ID",
     "sellerName": "对应的卖家名字",
     "isNpc": true或false(实际角色为false, 系统NPC为true),
-    "currentBid": 整数底价,
+    "currentBid": 整数起拍价,
     "highestBidderName": "暂无"
   }
 ]
@@ -177,7 +177,6 @@ ${npcListInfo}
 
     const parsedArray = cleanAndParseJSON(res.text);
     if (parsedArray && Array.isArray(parsedArray)) {
-      // 保留用户自己上架的商品，剔除其他商品，重新填充
       const userItems = _state.items.filter(i => i.isUserItem);
       
       const newItems = parsedArray.map(item => {
@@ -273,7 +272,6 @@ ${charListInfo}
       const charName = char.handle || char.name;
 
       if (decision.reaction === "chat") {
-        // 创建一个关于这个用户物品的独立对话
         const initialMsg = {
           id: `msg-welcome-${Date.now()}`,
           sender: "char",
@@ -295,7 +293,6 @@ ${charListInfo}
     }
   } catch (e) {
     console.error("角色关系联动评估失败：", e);
-    // 降级兜底：随机触发一个角色的竞价
     const randomChar = _state.allChars[Math.floor(Math.random() * _state.allChars.length)];
     const randomCharName = randomChar.handle || randomChar.name;
     const fallbackBid = userItem.currentBid + 100;
@@ -310,7 +307,93 @@ ${charListInfo}
 
 // ==================== 7. UI 组件渲染（纯函数无 this） ====================
 
-// 拍卖大厅
+// 顶部栏渲染
+function renderHeader() {
+  const header = document.createElement("header");
+  header.className = "rsa-header";
+
+  let titleText = "ROCHE AUCTION";
+  let leftBtnHtml = "";
+
+  if (_state.activeChatId) {
+    titleText = "私密估价与谈判";
+    leftBtnHtml = `
+      <button class="rsa-header-btn" id="rsa-chat-back">
+        <svg viewBox="0 0 24 24" class="rsa-nav-icon"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </button>
+    `;
+  }
+
+  header.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 8px;">
+      ${leftBtnHtml}
+      <span class="rsa-logo">${titleText}</span>
+    </div>
+    <div class="rsa-header-actions">
+      <button class="rsa-header-btn" id="rsa-btn-close-app" title="退出拍卖会">
+        <svg viewBox="0 0 24 24" class="rsa-nav-icon"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+  `;
+
+  const closeBtn = header.querySelector("#rsa-btn-close-app");
+  if (closeBtn) {
+    closeBtn.onclick = () => _roche.ui.closeApp();
+  }
+
+  const backBtn = header.querySelector("#rsa-chat-back");
+  if (backBtn) {
+    backBtn.onclick = async () => {
+      _state.activeChatId = null;
+      await renderAll();
+    };
+  }
+
+  return header;
+}
+
+// 底部栏导航渲染
+function renderNavBar() {
+  const nav = document.createElement("nav");
+  nav.className = "rsa-nav";
+
+  const tabs = [
+    {
+      id: "auction",
+      name: "拍卖大厅",
+      svg: `<path d="M14.2 4.63l-2.43-2.43a1.49 1.49 0 0 0-2.12 0l-7.3 7.3a1.49 1.49 0 0 0 0 2.12l2.43 2.43zm-7.9 7.9l-1.42-1.42 6.59-6.59 1.42 1.42zm11.97 3.42h-3.32l2.36-2.36c.59-.59.59-1.54 0-2.12a1.49 1.49 0 0 0-2.12 0L8.7 18.06h9.57c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5zM2 21h20v1H2z"/>`
+    },
+    {
+      id: "messages",
+      name: "消息",
+      svg: `<path d="M12 2C6.48 2 2 6.48 2 12c0 1.54.36 3 1 4.28L1.62 21.3c-.39 1.01.62 2.01 1.62 1.62l5.02-1.38c1.28.64 2.74 1 4.28 1 5.52 0 10-4.48 10-10S17.52 2 12 2zm1 14H11v-2h2v2zm0-4H11V7h2v5z"/>`
+    },
+    {
+      id: "mine",
+      name: "我的",
+      svg: `<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>`
+    }
+  ];
+
+  tabs.forEach(tab => {
+    const btn = document.createElement("button");
+    btn.className = `rsa-nav-item ${_state.activeTab === tab.id ? "active" : ""}`;
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" class="rsa-nav-icon">${tab.svg}</svg>
+      <span>${tab.name}</span>
+    `;
+    btn.onclick = async () => {
+      _state.activeTab = tab.id;
+      _state.activeChatId = null;
+      await renderAll();
+    };
+    nav.appendChild(btn);
+  });
+
+  return nav;
+}
+
+// 拍卖大厅主面板
 function renderAuctionCenter() {
   const root = document.createElement("div");
   const grid = document.createElement("div");
@@ -367,7 +450,6 @@ function renderAuctionCenter() {
       </div>
     `;
 
-    // 竞价行为（混合 NPC 及 Char 竞价）
     const bidBtn = card.querySelector(`#rsa-bid-${item.id}`);
     if (bidBtn) {
       bidBtn.onclick = async () => {
@@ -422,7 +504,7 @@ function renderAuctionCenter() {
   return root;
 }
 
-// 模拟竞价定时器：NPC 和 角色都会参与竞价
+// 模拟竞价
 function triggerSimulatedBidding(itemId) {
   if (_bidSimulationTimer) {
     clearTimeout(_bidSimulationTimer);
@@ -434,7 +516,6 @@ function triggerSimulatedBidding(itemId) {
     if (!item) return;
 
     if (item.highestBidderName.includes("你的面具")) {
-      // 50% 概率由内置 NPC 抢拍，50% 概率由 Chars 抢拍
       const useNpc = Math.random() > 0.5;
       let bidderName = "神秘竞买人";
 
@@ -467,7 +548,7 @@ function triggerSimulatedBidding(itemId) {
   }, delay);
 }
 
-// 消息列表渲染
+// 消息列表
 function renderMessagesList() {
   const root = document.createElement("div");
   root.className = "rsa-chat-list";
@@ -514,7 +595,7 @@ function renderMessagesList() {
   return root;
 }
 
-// 私聊 AI 对答逻辑（全面融入全局世界书与亲密度记忆）
+// 模拟 AI 回应
 async function getAIReplyForAuction(item, messages, messagesContainer) {
   let charPersona = "";
   let memoryText = "";
@@ -922,18 +1003,17 @@ async function renderAll() {
   _container.appendChild(appEl);
 }
 
-// ==================== 8. 宿主注册接口 ====================
+// ==================== 8. 宿主注册接口定义 ====================
 window.RochePlugin.register({
   id: "roche-seller-auction",
   name: "Roche 拍卖会",
-  version: "1.1.0",
+  version: "1.1.1",
   apps: [
     {
       id: "roche-seller-auction-home",
       name: "拍卖会",
       icon: "shopping_bag",
       async mount(container, roche) {
-        // 样式强制硬性大小限制（解决大图头像挤爆、卡死界面的问题）
         const styleId = "roche-seller-auction-styles";
         if (!document.getElementById(styleId)) {
           const style = document.createElement("style");
