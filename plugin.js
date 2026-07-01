@@ -2,6 +2,7 @@
 let _roche = null;
 let _container = null;
 let _bidSimulationTimer = null;
+let _isRefreshing = false; // 刷新状态锁
 
 const _state = {
   activeTab: "auction", // "auction" | "messages" | "mine"
@@ -13,51 +14,42 @@ const _state = {
   allChars: [],         // 宿主的所有 Character 列表
 };
 
-// ==================== 2. 扁平化核心数据逻辑 ====================
+// 系统内置高净值 NPC 库
+const _systemNpcs = {
+  "npc-victor": { name: "维克多", avatar: "data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%232c3e50\"/><circle cx=\"12\" cy=\"12\" r=\"6\" fill=\"%23ecf0f1\"/></svg>", bio: "行商半生的老牌古董商，对古老神秘的机械与文献极度痴迷。" },
+  "npc-ashe": { name: "艾希", avatar: "data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%238e44ad\"/><circle cx=\"12\" cy=\"12\" r=\"6\" fill=\"%23f1c40f\"/></svg>", bio: "新浪潮先锋艺术家，偏爱怪诞、离奇且富有强烈精神隐喻的藏品。" },
+  "npc-selena": { name: "瑟琳娜", avatar: "data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%23c0392b\"/><circle cx=\"12\" cy=\"12\" r=\"6\" fill=\"%23f39c12\"/></svg>", bio: "名门望族之后，只收集世俗罕见的名家手稿、奢华古宝与皇家遗物。" },
+  "npc-buyerh": { name: "匿名买手 H", avatar: "data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%232c3e50\"/><circle cx=\"12\" cy=\"12\" r=\"6\" fill=\"%237f8c8d\"/></svg>", bio: "游走于灰暗地带的神秘买手，专门搜罗蕴含未知超自然能量的禁忌奇物。" }
+};
 
-function generateDefaultItems() {
-  const defaultItems = [];
-  if (_state.allChars && _state.allChars.length > 0) {
-    _state.allChars.forEach((char, index) => {
-      const charName = char.name || char.handle || "神秘客";
-      const itemsPool = [
-        { title: `${charName}的随身手稿`, desc: `一份黄旧的草稿，潦草写着一些关于日常的零碎思考。`, price: 800 },
-        { title: `${charName}心爱的复古挂饰`, desc: `设计极为小巧精致的挂饰，似乎承载着某段特别的记忆。`, price: 1500 },
-        { title: `《${charName}所见之景》艺术画作`, desc: `特定视角下的极简画作，笔触细腻，光影构图绝佳。`, price: 3200 }
-      ];
-      const itemTemplate = itemsPool[index % itemsPool.length];
-      defaultItems.push({
-        id: `item-char-${char.id}-${index}`,
-        title: itemTemplate.title,
-        description: itemTemplate.desc,
-        sellerId: char.id,
-        sellerName: charName,
-        sellerAvatar: char.avatar || "",
-        isUserItem: false,
-        currentBid: itemTemplate.price,
-        highestBidderName: "系统保留",
-        status: "active",
-        createdAt: Date.now() - (index * 3600000)
-      });
-    });
-  } else {
-    defaultItems.push({
-      id: "item-default-1",
-      title: "未署名的纯黑美学画作",
-      description: "线条极简，充满未知的神秘感。散发着若有若无的高级质感。",
-      sellerId: "unknown-1",
-      sellerName: "匿名阁下",
-      sellerAvatar: "",
-      isUserItem: false,
-      currentBid: 2400,
-      highestBidderName: "暂无",
-      status: "active",
-      createdAt: Date.now()
-    });
+// ==================== 2. JSON 安全清洁解析工具 ====================
+function cleanAndParseJSON(rawText) {
+  try {
+    let cleaned = rawText.trim();
+    cleaned = cleaned.replace(/^```json\s*/i, "");
+    cleaned = cleaned.replace(/^```\s*/, "");
+    cleaned = cleaned.replace(/\s*```$/, "");
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error("JSON 结构提取解析失败，原始文本: ", rawText, e);
+    return null;
   }
-  return defaultItems;
 }
 
+// ==================== 3. 世界书挂载加载逻辑 ====================
+async function loadWorldbookText() {
+  try {
+    const entries = await _roche.worldbook.getEntries({ scope: "global" });
+    if (entries && entries.length > 0) {
+      return entries.map(e => `【${e.trigger || e.name}】：${e.content}`).join("\n");
+    }
+  } catch (e) {
+    console.warn("读取全局世界书失败，将使用空白世界设定：", e);
+  }
+  return "暂无全局世界设定。";
+}
+
+// ==================== 4. 扁平化数据存取 ====================
 async function loadData() {
   try {
     _state.allPersonas = (await _roche.persona.getUserPersonas()) || [];
@@ -90,171 +82,235 @@ async function saveData() {
   }
 }
 
-// ==================== 3. 扁平化 UI 渲染与交互 ====================
-
-function renderPersonaPickerModal(isForce = false) {
-  const overlay = document.createElement("div");
-  overlay.className = "rsa-overlay";
-
-  const modal = document.createElement("div");
-  modal.className = "rsa-modal";
-  modal.innerHTML = `
-    <div class="rsa-modal-header">
-      ${isForce ? "请先选择你参与拍卖会的 User 面具" : "切换你在拍卖会的 User 面具"}
-    </div>
-    <div class="rsa-modal-list" id="rsa-modal-personas"></div>
-  `;
-
-  const listContainer = modal.querySelector("#rsa-modal-personas");
-
-  if (_state.allPersonas.length === 0) {
-    listContainer.innerHTML = `<div class="rsa-empty" style="padding: 24px;">未检测到可用的 User 人设，请先在 Roche 主应用中创建人设面具。</div>`;
-  } else {
-    _state.allPersonas.forEach(persona => {
-      const item = document.createElement("div");
-      item.className = "rsa-modal-item";
-      item.innerHTML = `
-        <img class="rsa-avatar" src="${persona.avatar || 'data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%23e1e1e1\"/><circle cx=\"12\" cy=\"12\" r=\"8\" fill=\"%23999999\"/></svg>'}" />
-        <div class="rsa-seller-info">
-          <span class="rsa-seller-name">${persona.name || persona.handle}</span>
-          <span class="rsa-seller-tag" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${persona.bio || "无简介"}</span>
-        </div>
-      `;
-      item.onclick = async () => {
-        _state.activePersona = persona;
-        await saveData();
-        _roche.ui.toast(`已成功切换身份面具为: ${persona.name || persona.handle}`);
-        overlay.remove();
-        await renderAll();
-      };
-      listContainer.appendChild(item);
+// 本地默认兜底商品（在 AI 接口未配置或连接失败时使用）
+function generateDefaultItems() {
+  const defaultItems = [];
+  if (_state.allChars && _state.allChars.length > 0) {
+    _state.allChars.forEach((char, index) => {
+      const charName = char.name || char.handle || "神秘客";
+      defaultItems.push({
+        id: `item-char-${char.id}-${index}`,
+        title: `${charName}随身携带的旧挂饰`,
+        description: `带有${charName}过往故事的古朴小挂饰。在阳光下折射出淡淡的铜锈色，似乎包含一段宿主未曾得知的温暖回忆。`,
+        sellerId: char.id,
+        sellerName: charName,
+        sellerAvatar: char.avatar || "",
+        isNpc: false,
+        isUserItem: false,
+        currentBid: 1500,
+        highestBidderName: "系统保留",
+        status: "active",
+        createdAt: Date.now() - (index * 3600000)
+      });
     });
   }
 
-  if (!isForce) {
-    overlay.onclick = (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
-      }
-    };
-  }
-
-  overlay.appendChild(modal);
-  return overlay;
-}
-
-function renderHeader() {
-  const header = document.createElement("header");
-  header.className = "rsa-header";
-
-  let titleText = "ROCHE AUCTION";
-  let leftBtnHtml = "";
-
-  if (_state.activeChatId) {
-    titleText = "私密估价与谈判";
-    leftBtnHtml = `
-      <button class="rsa-header-btn" id="rsa-chat-back">
-        <svg viewBox="0 0 24 24" class="rsa-nav-icon"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-      </button>
-    `;
-  }
-
-  header.innerHTML = `
-    <div style="display: flex; align-items: center; gap: 8px;">
-      ${leftBtnHtml}
-      <span class="rsa-logo">${titleText}</span>
-    </div>
-    <div class="rsa-header-actions">
-      <button class="rsa-header-btn" id="rsa-btn-close-app" title="退出拍卖会">
-        <svg viewBox="0 0 24 24" class="rsa-nav-icon"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-      </button>
-    </div>
-  `;
-
-  const closeBtn = header.querySelector("#rsa-btn-close-app");
-  if (closeBtn) {
-    closeBtn.onclick = () => _roche.ui.closeApp();
-  }
-
-  const backBtn = header.querySelector("#rsa-chat-back");
-  if (backBtn) {
-    backBtn.onclick = async () => {
-      _state.activeChatId = null;
-      await renderAll();
-    };
-  }
-
-  return header;
-}
-
-function renderNavBar() {
-  const nav = document.createElement("nav");
-  nav.className = "rsa-nav";
-
-  const tabs = [
-    {
-      id: "auction",
-      name: "拍卖大厅",
-      svg: `<path d="M14.2 4.63l-2.43-2.43a1.49 1.49 0 0 0-2.12 0l-7.3 7.3a1.49 1.49 0 0 0 0 2.12l2.43 2.43zm-7.9 7.9l-1.42-1.42 6.59-6.59 1.42 1.42zm11.97 3.42h-3.32l2.36-2.36c.59-.59.59-1.54 0-2.12a1.49 1.49 0 0 0-2.12 0L8.7 18.06h9.57c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5zM2 21h20v1H2z"/>`
-    },
-    {
-      id: "messages",
-      name: "消息",
-      svg: `<path d="M12 2C6.48 2 2 6.48 2 12c0 1.54.36 3 1 4.28L1.62 21.3c-.39 1.01.62 2.01 1.62 1.62l5.02-1.38c1.28.64 2.74 1 4.28 1 5.52 0 10-4.48 10-10S17.52 2 12 2zm1 14H11v-2h2v2zm0-4H11V7h2v5z"/>`
-    },
-    {
-      id: "mine",
-      name: "我的",
-      svg: `<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>`
-    }
-  ];
-
-  tabs.forEach(tab => {
-    const btn = document.createElement("button");
-    btn.className = `rsa-nav-item ${_state.activeTab === tab.id ? "active" : ""}`;
-    btn.innerHTML = `
-      <svg viewBox="0 0 24 24" class="rsa-nav-icon">${tab.svg}</svg>
-      <span>${tab.name}</span>
-    `;
-    btn.onclick = async () => {
-      _state.activeTab = tab.id;
-      _state.activeChatId = null;
-      await renderAll();
-    };
-    nav.appendChild(btn);
+  // 混合 NPC 商品
+  Object.keys(_systemNpcs).forEach((npcKey, idx) => {
+    const npc = _systemNpcs[npcKey];
+    defaultItems.push({
+      id: `item-npc-${npcKey}-${idx}`,
+      title: idx === 0 ? "未被解译的纯黑手抄本" : "发光的深海晶核",
+      description: idx === 0 ? "一部纸页完全泛黑的怪诞书籍，上面的符号不属于任何已知的人类文明语系。" : "散发着淡蓝色微光的奇特矿晶，捧在手心能感受到类似潮汐波动的微弱脉搏。",
+      sellerId: npcKey,
+      sellerName: npc.name,
+      sellerAvatar: npc.avatar,
+      isNpc: true,
+      isUserItem: false,
+      currentBid: 2800,
+      highestBidderName: "暂无",
+      status: "active",
+      createdAt: Date.now()
+    });
   });
 
-  return nav;
+  return defaultItems;
 }
 
-function triggerSimulatedBidding(itemId) {
-  if (_bidSimulationTimer) {
-    clearTimeout(_bidSimulationTimer);
+// ==================== 5. AI 商品生成与刷新机制 ====================
+async function triggerAIRefreshItems() {
+  if (_isRefreshing) return;
+  _isRefreshing = true;
+  _roche.ui.toast("AI 正在重组拍卖会大厅商品中...");
+
+  const worldbookText = await loadWorldbookText();
+  const charListInfo = _state.allChars.map(c => `- ID: ${c.id}, 名字: ${c.name || c.handle}, 人设或简介: ${c.persona || c.bio || ""}`).join("\n");
+  const npcListInfo = Object.keys(_systemNpcs).map(key => `- ID: ${key}, 名字: ${_systemNpcs[key].name}, 背景: ${_systemNpcs[key].bio}`).join("\n");
+
+  const systemPrompt = `你是一个线上秘密拍卖行的商品规划AI。请根据当前的实际角色（Characters）和内置 NPC，结合游戏世界书，生成 3-4 件全新的符合他们身份、人设、宿主故事、或主线关联记忆的精美拍卖品。
+
+【世界书设定】：
+${worldbookText}
+
+【当前可用的挂载角色】：
+${charListInfo}
+
+【当前可用的系统 NPC 卖家】：
+${npcListInfo}
+
+【生成准则】：
+1. 至少有 1-2 件是由实际角色（Characters）上架的物品，描述中必须巧妙融入该角色的人生经历、喜好或记忆暗线，使其显得极其贴切。
+2. 至少有 1-2 件是由 NPC 卖家上架的物品。
+3. 请严格输出一个合法、无 markdown 包裹、无任何冗余文本的 JSON 数组。数组中每个对象格式如下：
+[
+  {
+    "id": "随机唯一ID",
+    "title": "符合人设的拍卖品名称",
+    "description": "拍卖品故事背景描述，富有文学色彩，不含任何表情符号",
+    "sellerId": "对应的角色ID 或 对应的NPC ID",
+    "sellerName": "对应的卖家名字",
+    "isNpc": true或false(实际角色为false, 系统NPC为true),
+    "currentBid": 整数底价,
+    "highestBidderName": "暂无"
   }
+]
+`;
 
-  const delay = Math.floor(Math.random() * 5000) + 5000;
-  _bidSimulationTimer = setTimeout(async () => {
-    const item = _state.items.find(i => i.id === itemId && i.status === "active");
-    if (!item) return;
+  try {
+    const res = await _roche.ai.chat({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: "请立即输出拍卖品数据，不要带任何开场白或 markdown 符号。" }
+      ],
+      temperature: 0.8
+    });
 
-    if (item.highestBidderName.includes("你的面具") && _state.allChars.length > 0) {
-      const availableBidders = _state.allChars.filter(c => c.id !== item.sellerId);
-      if (availableBidders.length === 0) return;
+    const parsedArray = cleanAndParseJSON(res.text);
+    if (parsedArray && Array.isArray(parsedArray)) {
+      // 保留用户自己上架的商品，剔除其他商品，重新填充
+      const userItems = _state.items.filter(i => i.isUserItem);
+      
+      const newItems = parsedArray.map(item => {
+        let avatar = "";
+        if (item.isNpc) {
+          avatar = _systemNpcs[item.sellerId]?.avatar || "";
+        } else {
+          const char = _state.allChars.find(c => c.id === item.sellerId);
+          avatar = char ? (char.avatar || "") : "";
+        }
 
-      const randomBidder = availableBidders[Math.floor(Math.random() * availableBidders.length)];
-      const bidIncrement = Math.floor(Math.random() * 3 + 1) * 100;
-      const newBid = item.currentBid + bidIncrement;
+        return {
+          id: item.id,
+          title: item.title,
+          description: item.description,
+          sellerId: item.sellerId,
+          sellerName: item.sellerName,
+          sellerAvatar: avatar,
+          isNpc: !!item.isNpc,
+          isUserItem: false,
+          currentBid: item.currentBid || 1000,
+          highestBidderName: "暂无",
+          status: "active",
+          createdAt: Date.now()
+        };
+      });
 
-      item.currentBid = newBid;
-      item.highestBidderName = randomBidder.handle || randomBidder.name;
-
+      _state.items = [...userItems, ...newItems];
       await saveData();
-      _roche.ui.toast(`提示：${randomBidder.handle || randomBidder.name} 对《${item.title}》出价到 ¥${newBid}！`);
-      await renderAll();
+      _roche.ui.toast("拍卖大厅商品已成功重组刷新！");
+    } else {
+      throw new Error("AI 返回的数据不满足 JSON 解析标准");
     }
-  }, delay);
+  } catch (e) {
+    console.error("AI 刷新失败，将执行本地降级刷新：", e);
+    const userItems = _state.items.filter(i => i.isUserItem);
+    _state.items = [...userItems, ...generateDefaultItems()];
+    await saveData();
+    _roche.ui.toast("AI 服务繁忙，已执行默认商品刷新。");
+  } finally {
+    _isRefreshing = false;
+    await renderAll();
+  }
 }
 
+// ==================== 6. 用户上架自动触发关系网反应 ====================
+async function triggerCharReactionToUserItem(userItem) {
+  if (_state.allChars.length === 0) return;
+
+  const worldbookText = await loadWorldbookText();
+  const charListInfo = _state.allChars.map(c => `- ID: ${c.id}, 名字: ${c.name || c.handle}, 人设或简介: ${c.persona || c.bio || ""}`).join("\n");
+
+  const systemPrompt = `你是一个拍卖会买家反应决策AI。
+用户在秘密拍卖行刚刚上架了一件藏品：
+【物品标题】: ${userItem.title}
+【物品描述】: ${userItem.description}
+【起拍底价】: ¥ ${userItem.currentBid}
+
+【世界书设定】：
+${worldbookText}
+
+【当前可选择的主线角色关系网】：
+${charListInfo}
+
+请从可用角色中，挑选一个最有可能对这件藏品产生强烈情绪、渴望或者有背景纠葛的角色。
+请为该角色在以下两种反应中选择一种，并严格输出一个合法、无 markdown 包裹的 JSON 对象：
+1. "chat"（直接对该商品发起私密私聊，向用户探讨甚至希望高价私下买走，字数在1-3句简短有力，符合人物语气）。
+2. "bid"（直接在大厅疯狂竞价，对该物品上抬价格）。
+
+期望输出格式：
+{
+  "charId": "选中的角色ID",
+  "reaction": "chat" 或 "bid",
+  "message": "如果选择 chat，请输入对用户发送的第一条私密开场白，绝对符合Ta对用户的态度，不要使用 Emoji",
+  "bidAmount": 如果选择 bid，请输入角色竞争出价的整百金额（必须大于当前起拍底价，例如 ${userItem.currentBid + 300}）
+}
+`;
+
+  try {
+    const res = await _roche.ai.chat({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: "请根据上述逻辑迅速决策该角色的反应。" }
+      ],
+      temperature: 0.8
+    });
+
+    const decision = cleanAndParseJSON(res.text);
+    if (decision && decision.charId) {
+      const char = _state.allChars.find(c => c.id === decision.charId);
+      if (!char) return;
+
+      const charName = char.handle || char.name;
+
+      if (decision.reaction === "chat") {
+        // 创建一个关于这个用户物品的独立对话
+        const initialMsg = {
+          id: `msg-welcome-${Date.now()}`,
+          sender: "char",
+          text: decision.message || `你好，我是【${charName}】。我对你上架的《${userItem.title}》极其感兴趣。我们能聊聊吗？`,
+          timestamp: Date.now()
+        };
+        _state.chats[userItem.id] = [initialMsg];
+        await saveData();
+
+        _roche.ui.toast(`主线提醒：【${charName}】对你的藏品《${userItem.title}》产生了强烈兴趣，已主动发起私聊！`);
+      } else if (decision.reaction === "bid") {
+        const bidPrice = parseInt(decision.bidAmount, 10) || (userItem.currentBid + 200);
+        userItem.currentBid = bidPrice;
+        userItem.highestBidderName = `${charName} (宿主角色)`;
+        await saveData();
+
+        _roche.ui.toast(`大厅提醒：【${charName}】看中了你的《${userItem.title}》，已在柜台出价到 ¥${bidPrice}！`);
+      }
+    }
+  } catch (e) {
+    console.error("角色关系联动评估失败：", e);
+    // 降级兜底：随机触发一个角色的竞价
+    const randomChar = _state.allChars[Math.floor(Math.random() * _state.allChars.length)];
+    const randomCharName = randomChar.handle || randomChar.name;
+    const fallbackBid = userItem.currentBid + 100;
+    userItem.currentBid = fallbackBid;
+    userItem.highestBidderName = `${randomCharName} (宿主角色)`;
+    await saveData();
+    _roche.ui.toast(`大厅提醒：【${randomCharName}】对你的《${userItem.title}》出价到 ¥${fallbackBid}！`);
+  } finally {
+    await renderAll();
+  }
+}
+
+// ==================== 7. UI 组件渲染（纯函数无 this） ====================
+
+// 拍卖大厅
 function renderAuctionCenter() {
   const root = document.createElement("div");
   const grid = document.createElement("div");
@@ -272,13 +328,14 @@ function renderAuctionCenter() {
     card.className = "rsa-card";
 
     const isOwner = item.isUserItem || (_state.activePersona && item.sellerId === _state.activePersona.id);
+    const isNpc = !!item.isNpc;
 
     card.innerHTML = `
       <div class="rsa-card-header">
         <img class="rsa-avatar" src="${item.sellerAvatar || 'data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%23e1e1e1\"/><circle cx=\"12\" cy=\"12\" r=\"8\" fill=\"%23999999\"/></svg>'}" />
         <div class="rsa-seller-info">
           <span class="rsa-seller-name">${item.sellerName}</span>
-          <span class="rsa-seller-tag">${item.isUserItem ? "你上架的" : "宿主角色"}</span>
+          <span class="rsa-seller-tag">${item.isUserItem ? "你上架的" : (isNpc ? "NPC买手" : "宿主角色")}</span>
         </div>
       </div>
       <div class="rsa-card-img-placeholder">
@@ -302,7 +359,7 @@ function renderAuctionCenter() {
             ${isOwner ? `
               <button class="rsa-btn rsa-btn-outline" style="border-color: #ff3b30; color: #ff3b30;" id="rsa-cancel-${item.id}">下架</button>
             ` : `
-              <button class="rsa-btn rsa-btn-outline" id="rsa-chat-${item.id}">私聊谈判</button>
+              ${isNpc ? "" : `<button class="rsa-btn rsa-btn-outline" id="rsa-chat-${item.id}">私聊谈判</button>`}
               <button class="rsa-btn" id="rsa-bid-${item.id}">参与竞价</button>
             `}
           </div>
@@ -310,6 +367,7 @@ function renderAuctionCenter() {
       </div>
     `;
 
+    // 竞价行为（混合 NPC 及 Char 竞价）
     const bidBtn = card.querySelector(`#rsa-bid-${item.id}`);
     if (bidBtn) {
       bidBtn.onclick = async () => {
@@ -364,6 +422,52 @@ function renderAuctionCenter() {
   return root;
 }
 
+// 模拟竞价定时器：NPC 和 角色都会参与竞价
+function triggerSimulatedBidding(itemId) {
+  if (_bidSimulationTimer) {
+    clearTimeout(_bidSimulationTimer);
+  }
+
+  const delay = Math.floor(Math.random() * 4000) + 4000;
+  _bidSimulationTimer = setTimeout(async () => {
+    const item = _state.items.find(i => i.id === itemId && i.status === "active");
+    if (!item) return;
+
+    if (item.highestBidderName.includes("你的面具")) {
+      // 50% 概率由内置 NPC 抢拍，50% 概率由 Chars 抢拍
+      const useNpc = Math.random() > 0.5;
+      let bidderName = "神秘竞买人";
+
+      if (useNpc) {
+        const keys = Object.keys(_systemNpcs);
+        const randomNpc = _systemNpcs[keys[Math.floor(Math.random() * keys.length)]];
+        bidderName = `${randomNpc.name} (NPC)`;
+      } else if (_state.allChars.length > 0) {
+        const availableBidders = _state.allChars.filter(c => c.id !== item.sellerId);
+        if (availableBidders.length > 0) {
+          const randomChar = availableBidders[Math.floor(Math.random() * availableBidders.length)];
+          bidderName = randomChar.handle || randomChar.name;
+        } else {
+          const keys = Object.keys(_systemNpcs);
+          const randomNpc = _systemNpcs[keys[Math.floor(Math.random() * keys.length)]];
+          bidderName = `${randomNpc.name} (NPC)`;
+        }
+      }
+
+      const bidIncrement = Math.floor(Math.random() * 3 + 1) * 100;
+      const newBid = item.currentBid + bidIncrement;
+
+      item.currentBid = newBid;
+      item.highestBidderName = bidderName;
+
+      await saveData();
+      _roche.ui.toast(`大厅消息：${bidderName} 对《${item.title}》出价到 ¥${newBid}！`);
+      await renderAll();
+    }
+  }, delay);
+}
+
+// 消息列表渲染
 function renderMessagesList() {
   const root = document.createElement("div");
   root.className = "rsa-chat-list";
@@ -373,7 +477,7 @@ function renderMessagesList() {
     root.innerHTML = `
       <div class="rsa-empty">
         <svg viewBox="0 0 24 24" style="width: 48px; height: 48px; fill: #dbdbdb; margin-bottom: 12px;"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
-        暂无私聊消息。你可以前往大厅，点击“私聊谈判”与角色就上架物品进行私密交易。
+        暂无私密消息。你可以前往大厅，点击“私聊谈判”与角色进行私密交易。
       </div>
     `;
     return root;
@@ -410,6 +514,7 @@ function renderMessagesList() {
   return root;
 }
 
+// 私聊 AI 对答逻辑（全面融入全局世界书与亲密度记忆）
 async function getAIReplyForAuction(item, messages, messagesContainer) {
   let charPersona = "";
   let memoryText = "";
@@ -425,7 +530,7 @@ async function getAIReplyForAuction(item, messages, messagesContainer) {
         if (longTerm) {
           const core = longTerm.core?.summary || "";
           const facts = (longTerm.facts || []).map(f => f.summaryText || f.action || "").join("；");
-          memoryText = `你与 Ta 的长期记忆摘要：${core} ${facts}`;
+          memoryText = `长期记忆轨迹摘要：${core} ${facts}`;
         }
       }
     }
@@ -435,28 +540,33 @@ async function getAIReplyForAuction(item, messages, messagesContainer) {
 
   const userPersonaName = _state.activePersona ? (_state.activePersona.name || _state.activePersona.handle) : "你";
   const userPersonaDetails = _state.activePersona ? (_state.activePersona.persona || _state.activePersona.bio || "") : "";
+  const worldbookText = await loadWorldbookText();
 
   const systemPrompt = `你现在在扮演 Roche 里的角色【${item.sellerName}】。
-当前你和用户在“Roche 线上拍卖会”的独立私聊房间里，私下商讨你上架的拍卖品。
+当前你和用户在“秘密拍卖会”的独立私聊房间里，探讨你上架的物品，或者探讨用户上架的物品。
 
-【上架的拍卖品】：${item.title}
+【当前商讨的拍卖品】：${item.title}
 【物品描述】：${item.description}
-【当前拍卖大厅里的最高竞价】：¥ ${item.currentBid}
+【当前拍卖大厅价格】：¥ ${item.currentBid}
+
+【世界观基础（世界书设定）】：
+${worldbookText}
 
 【正在与你对话的用户身份】：
 名字: ${userPersonaName}
-Ta 的设定/面具: ${userPersonaDetails}
+Ta 的面具/背景: ${userPersonaDetails}
 
-【你的基础人设设定】：
+【你的核心人设】：
 ${charPersona}
 
-【你与该用户的过往记忆轨迹】：
+【你与该用户的深层关系记忆】：
 ${memoryText}
 
 【回复准则】：
-1. 保持你的原装人设、说话语调和对该用户的关系态度（无论是疏离、暖昧、主仆、还是仇视，完全遵循过往记忆）。
-2. 这是在私密的拍卖通道里。你可以向 Ta 撒娇、推销、骄傲地阐述这件宝贝为什么珍贵，或者就 Ta 的报价进行极其个性化的“拉扯与讨价还价”。
-3. 保持字数在 1-3 句话左右。符合现代化 IM 私信简短有力的沟通特征，不要发过于空洞的长篇大论，禁止使用任何 Emoji 图标。
+1. 绝对遵循你的性格设定与关系态度。如果对用户有宿主历史记忆中存在的依恋、抗拒或警惕，请在此对话中极尽展现出来。
+2. 允许将世界书的概念、地名、派系暗线合理融入对话中，体现对话的高级深度。
+3. 你们正在私密地讨价还价，你可以向 Ta 解释为什么不想便宜卖，或者向用户索要该物品背后的秘密。
+4. 保持字数在 1-3 句话左右，绝对符合 IM 私密聊天的特性，严禁使用任何表情符号（Emoji）。
 `;
 
   const chatPayload = [
@@ -486,7 +596,7 @@ ${memoryText}
 
     typingBubble.remove();
 
-    const replyText = res.text || "……（看起来并没有什么想说的）";
+    const replyText = res.text || "……（默默地看着你，没有多作说明）";
 
     const charMsg = {
       id: `msg-char-${Date.now()}`,
@@ -507,10 +617,11 @@ ${memoryText}
   } catch (e) {
     typingBubble.remove();
     console.error("AI 响应失败: ", e);
-    _roche.ui.toast("AI 对话连接失败，请检查模型配置");
+    _roche.ui.toast("AI 谈判定向连接失败，请检查模型配置");
   }
 }
 
+// 聊天窗
 async function renderChatWindow(itemId) {
   const root = document.createElement("div");
   root.className = "rsa-chat-window";
@@ -530,7 +641,7 @@ async function renderChatWindow(itemId) {
     const welcomeMsg = {
       id: `msg-welcome-${Date.now()}`,
       sender: "char",
-      text: `你好，我是【${item.sellerName}】。我看到你对我在 拍卖会上架的【${item.title}】很感兴趣。对于这件宝贝，你想出多少钱，或者有什么想问的？`,
+      text: `你好，我是【${item.sellerName}】。我对你的这个【${item.title}】相当看中。我想知道你在哪里得到的？打算多少钱让给我？`,
       timestamp: Date.now()
     };
     messages.push(welcomeMsg);
@@ -552,7 +663,7 @@ async function renderChatWindow(itemId) {
   const inputArea = document.createElement("div");
   inputArea.className = "rsa-chat-input-area";
   inputArea.innerHTML = `
-    <input class="rsa-input" type="text" placeholder="给 ${item.sellerName} 发送消息（协商价格/闲聊）..." id="rsa-chat-field" />
+    <input class="rsa-input" type="text" placeholder="与 ${item.sellerName} 议价/叙旧..." id="rsa-chat-field" />
     <button class="rsa-btn" id="rsa-chat-send" style="border-radius: 20px;">发送</button>
   `;
 
@@ -596,6 +707,7 @@ async function renderChatWindow(itemId) {
   return root;
 }
 
+// 个人中心 Tab
 function renderMineTab() {
   const root = document.createElement("div");
 
@@ -622,10 +734,11 @@ function renderMineTab() {
   }
   root.appendChild(profile);
 
+  // 表单
   const form = document.createElement("div");
   form.className = "rsa-form";
   form.innerHTML = `
-    <span class="rsa-form-title">发布我的拍卖品</span>
+    <span class="rsa-form-title">挂牌发布我的藏品</span>
     
     <div class="rsa-form-group">
       <span class="rsa-form-label">拍卖品名称</span>
@@ -670,6 +783,7 @@ function renderMineTab() {
         sellerId: _state.activePersona ? _state.activePersona.id : "user",
         sellerName: pName,
         sellerAvatar: pAvatar,
+        isNpc: false,
         isUserItem: true,
         currentBid: fPrice,
         highestBidderName: "尚无出价",
@@ -680,9 +794,14 @@ function renderMineTab() {
       _state.items.unshift(newItem);
       await saveData();
 
-      _roche.ui.toast("藏品已成功挂靠至拍卖大厅！");
+      _roche.ui.toast("藏品已挂牌上架！正在触发宿主角色市场反应...");
       _state.activeTab = "auction";
       await renderAll();
+
+      // 自动触发有主线故事交集的 Chars 的私聊/竞价决策评估
+      setTimeout(async () => {
+        await triggerCharReactionToUserItem(newItem);
+      }, 1500);
     };
   }
 
@@ -690,6 +809,59 @@ function renderMineTab() {
   return root;
 }
 
+// 切换面具弹窗
+function renderPersonaPickerModal(isForce = false) {
+  const overlay = document.createElement("div");
+  overlay.className = "rsa-overlay";
+
+  const modal = document.createElement("div");
+  modal.className = "rsa-modal";
+  modal.innerHTML = `
+    <div class="rsa-modal-header">
+      ${isForce ? "请先选择你参与拍卖会的 User 面具" : "切换你在拍卖会的 User 面具"}
+    </div>
+    <div class="rsa-modal-list" id="rsa-modal-personas"></div>
+  `;
+
+  const listContainer = modal.querySelector("#rsa-modal-personas");
+
+  if (_state.allPersonas.length === 0) {
+    listContainer.innerHTML = `<div class="rsa-empty" style="padding: 24px;">未检测到可用的 User 人设，请先在 Roche 主应用中创建人设面具。</div>`;
+  } else {
+    _state.allPersonas.forEach(persona => {
+      const item = document.createElement("div");
+      item.className = "rsa-modal-item";
+      item.innerHTML = `
+        <img class="rsa-avatar" src="${persona.avatar || 'data:image/svg+xml;utf8,<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100%\" height=\"100%\" fill=\"%23e1e1e1\"/><circle cx=\"12\" cy=\"12\" r=\"8\" fill=\"%23999999\"/></svg>'}" />
+        <div class="rsa-seller-info">
+          <span class="rsa-seller-name">${persona.name || persona.handle}</span>
+          <span class="rsa-seller-tag" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${persona.bio || "无简介"}</span>
+        </div>
+      `;
+      item.onclick = async () => {
+        _state.activePersona = persona;
+        await saveData();
+        _roche.ui.toast(`已成功切换身份面具为: ${persona.name || persona.handle}`);
+        overlay.remove();
+        await renderAll();
+      };
+      listContainer.appendChild(item);
+    });
+  }
+
+  if (!isForce) {
+    overlay.onclick = (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    };
+  }
+
+  overlay.appendChild(modal);
+  return overlay;
+}
+
+// 统一主调度渲染
 async function renderAll() {
   _container.innerHTML = "";
 
@@ -702,8 +874,30 @@ async function renderAll() {
     return;
   }
 
-  appEl.appendChild(renderHeader());
+  // 1. 顶部栏渲染
+  const header = renderHeader();
+  
+  // 仅在拍卖会主大厅，并且不在具体私聊中，才挂载“刷新”按钮
+  if (_state.activeTab === "auction" && !_state.activeChatId) {
+    const refreshBtn = document.createElement("button");
+    refreshBtn.className = "rsa-header-btn";
+    refreshBtn.style.marginRight = "10px";
+    refreshBtn.title = "刷新重组大厅商品";
+    refreshBtn.innerHTML = `<svg viewBox="0 0 24 24" class="rsa-nav-icon"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`;
+    
+    refreshBtn.onclick = async () => {
+      await triggerAIRefreshItems();
+    };
+    
+    const actionsContainer = header.querySelector(".rsa-header-actions");
+    if (actionsContainer) {
+      actionsContainer.insertBefore(refreshBtn, actionsContainer.firstChild);
+    }
+  }
 
+  appEl.appendChild(header);
+
+  // 2. 主体区渲染
   const bodyEl = document.createElement("div");
   bodyEl.className = "rsa-body";
 
@@ -720,6 +914,7 @@ async function renderAll() {
   }
   appEl.appendChild(bodyEl);
 
+  // 3. 底部导航栏渲染
   if (!_state.activeChatId) {
     appEl.appendChild(renderNavBar());
   }
@@ -727,18 +922,18 @@ async function renderAll() {
   _container.appendChild(appEl);
 }
 
-// ==================== 4. 宿主注册接口定义 ====================
+// ==================== 8. 宿主注册接口 ====================
 window.RochePlugin.register({
   id: "roche-seller-auction",
   name: "Roche 拍卖会",
-  version: "1.0.3",
+  version: "1.1.0",
   apps: [
     {
       id: "roche-seller-auction-home",
       name: "拍卖会",
       icon: "shopping_bag",
       async mount(container, roche) {
-        // 动态注入样式，锁定大图
+        // 样式强制硬性大小限制（解决大图头像挤爆、卡死界面的问题）
         const styleId = "roche-seller-auction-styles";
         if (!document.getElementById(styleId)) {
           const style = document.createElement("style");
@@ -758,7 +953,6 @@ window.RochePlugin.register({
             .rsa-container *, .rsa-container *::before, .rsa-container *::after {
               box-sizing: border-box;
             }
-            /* 顶部栏 */
             .rsa-header {
               height: 54px;
               background-color: #ffffff;
@@ -792,13 +986,11 @@ window.RochePlugin.register({
               align-items: center;
               color: #262626;
             }
-            /* 主体内容区 */
             .rsa-body {
               flex: 1;
               overflow-y: auto;
               padding-bottom: 70px;
             }
-            /* 底栏导航 */
             .rsa-nav {
               position: absolute;
               bottom: 0;
@@ -835,7 +1027,6 @@ window.RochePlugin.register({
               fill: currentColor;
               margin-bottom: 2px;
             }
-            /* 拍卖大厅列表 */
             .rsa-grid {
               display: grid;
               grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -856,8 +1047,8 @@ window.RochePlugin.register({
               padding: 12px;
               border-bottom: 1px solid #f0f0f0;
             }
-            
-            /* ==================== 头像强约束安全机制 ==================== */
+
+            /* ==================== 头像硬限制约束机制 ==================== */
             .rsa-avatar {
               width: 32px !important;
               height: 32px !important;
@@ -981,7 +1172,6 @@ window.RochePlugin.register({
               display: flex;
               gap: 6px;
             }
-            /* 消息页面 */
             .rsa-chat-list {
               display: flex;
               flex-direction: column;
@@ -1024,7 +1214,6 @@ window.RochePlugin.register({
               overflow: hidden;
               text-overflow: ellipsis;
             }
-            /* 聊天框 */
             .rsa-chat-window {
               display: flex;
               flex-direction: column;
@@ -1075,7 +1264,6 @@ window.RochePlugin.register({
               outline: none;
               margin-right: 10px;
             }
-            /* 我的 页面 */
             .rsa-profile-header {
               padding: 24px 16px;
               background-color: #ffffff;
@@ -1086,7 +1274,6 @@ window.RochePlugin.register({
               text-align: center;
               gap: 12px;
             }
-            /* 表单 */
             .rsa-form {
               background-color: #ffffff;
               border: 1px solid #dbdbdb;
@@ -1121,7 +1308,6 @@ window.RochePlugin.register({
               font-size: 13px;
               outline: none;
             }
-            /* 空状态 */
             .rsa-empty {
               display: flex;
               flex-direction: column;
@@ -1132,7 +1318,6 @@ window.RochePlugin.register({
               text-align: center;
               font-size: 14px;
             }
-            /* 遮罩及弹窗 */
             .rsa-overlay {
               position: fixed;
               top: 0;
