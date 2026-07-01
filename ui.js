@@ -2,7 +2,7 @@
 (function(exports) {
   const rsa = window.RocheSellerAuction;
 
-  // 1. 注入 Ins 极简白与黑奢华风格样式
+  // 1. 注入样式
   exports.injectStyles = function() {
     const styleId = "roche-seller-auction-styles";
     if (document.getElementById(styleId)) return;
@@ -124,7 +124,6 @@
         border-bottom: 1px solid #efefef;
       }
       
-      /* 头像尺寸 Base64 硬隔离 */
       .rsa-avatar {
         width: 32px !important;
         height: 32px !important;
@@ -255,7 +254,6 @@
         display: flex;
         gap: 6px;
       }
-      /* 谈判房间专用条 */
       .rsa-negotiation-bar {
         display: flex;
         justify-content: space-between;
@@ -267,7 +265,6 @@
         margin-bottom: 12px;
         font-size: 12px;
       }
-      /* 历史出价面板 */
       .rsa-history-panel {
         display: none;
         background-color: #fafafa;
@@ -296,7 +293,6 @@
         color: #111111;
       }
 
-      /* 消息列表 */
       .rsa-chat-list {
         display: flex;
         flex-direction: column;
@@ -338,7 +334,6 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      /* VIP 密闭私室聊天框 */
       .rsa-chat-window {
         display: flex;
         flex-direction: column;
@@ -390,7 +385,6 @@
         font-size: 13px;
         outline: none;
       }
-      /* 个人中心 */
       .rsa-profile-header {
         padding: 30px 16px;
         background-color: #ffffff;
@@ -602,7 +596,7 @@
     return nav;
   };
 
-  // 1. 拍卖大厅渲染 (包含大厅加价，查看竞标历史 Accordion 面板)
+  // 1. 拍卖大厅渲染
   exports.renderAuctionCenter = function() {
     const root = document.createElement("div");
     const grid = document.createElement("div");
@@ -622,7 +616,6 @@
       const isOwner = item.isUserItem || (rsa.state.activePersona && item.sellerId === rsa.state.activePersona.id);
       const isNpc = !!item.isNpc;
 
-      // 竞拍历史面板 DOM
       const historyList = (item.bidHistory || []).map(h => `
         <div class="rsa-history-item">
           <span>${h.bidderName}</span>
@@ -669,7 +662,6 @@
               <span class="rsa-seller-tag">${item.isUserItem ? "你上架的" : (isNpc ? "NPC买手" : "主线角色")}</span>
             </div>
           </div>
-          <!-- 竞拍历史折叠图标 -->
           <button class="rsa-header-btn" id="rsa-toggle-history-${item.id}" title="查看竞标历史账本">
             <svg viewBox="0 0 24 24" style="width:20px; height:20px; fill:#8e8e8e;"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"/></svg>
           </button>
@@ -696,7 +688,6 @@
         ${historyPanelHtml}
       `;
 
-      // 绑定历史折叠面板事件
       const toggleBtn = card.querySelector(`#rsa-toggle-history-${item.id}`);
       if (toggleBtn) {
         toggleBtn.onclick = () => {
@@ -708,7 +699,6 @@
         };
       }
 
-      // 大厅举牌
       const bidBtn = card.querySelector(`#rsa-bid-${item.id}`);
       if (bidBtn) {
         bidBtn.onclick = async () => {
@@ -722,11 +712,9 @@
             return;
           }
 
-          // 本地更新价格
           item.currentBid = userBid;
           item.highestBidderName = `${currentUserName} (你的面具)`;
           
-          // 添加举牌竞标记录
           if (!item.bidHistory) item.bidHistory = [];
           item.bidHistory.push({ bidderName: `${currentUserName} (面具)`, amount: userBid, time: "最新" });
 
@@ -734,7 +722,6 @@
           rsa.roche.ui.toast(`出价成功！大厅参考价已更新`);
           await exports.renderAll();
 
-          // 限制 Char/NPC 拍品的背景拉锯，仅在本地进行 1 轮随机回应，绝不滥用 API
           setTimeout(async () => {
             const liveItem = rsa.state.items.find(i => i.id === item.id && i.status === "active");
             if (!liveItem || liveItem.highestBidderName !== `${currentUserName} (你的面具)`) return;
@@ -758,7 +745,6 @@
         };
       }
 
-      // 私密后室谈判
       const chatBtn = card.querySelector(`#rsa-chat-${item.id}`);
       if (chatBtn) {
         chatBtn.onclick = async () => {
@@ -767,7 +753,6 @@
         };
       }
 
-      // 用户商品继续竞拍
       const contBtn = card.querySelector(`#rsa-user-continue-${item.id}`);
       if (contBtn) {
         contBtn.onclick = async () => {
@@ -776,7 +761,6 @@
         };
       }
 
-      // 用户商品一锤定音
       const settleBtn = card.querySelector(`#rsa-user-settle-${item.id}`);
       if (settleBtn) {
         settleBtn.onclick = async () => {
@@ -804,7 +788,7 @@
     return root;
   };
 
-  // 2. 包间谈判对话历史 (预览消息长度严格限制为 15 字)
+  // 2. 包间谈判对话历史 (预览消息严格限制为 15 字，超长截断)
   exports.renderMessagesList = function() {
     const root = document.createElement("div");
     root.className = "rsa-chat-list";
@@ -828,13 +812,12 @@
       const history = chatData ? (chatData.messages || []) : [];
       const lastMsg = history[history.length - 1] || { text: "包间虚位以待...", timestamp: Date.now() };
 
-      // 核心需求：约束谈判最后一条预览消息，只显示前 15 个字，超出添加省略号
+      // 核心限制：最后一条预览消息，只显示前 15 个字
       let previewText = lastMsg.text || "";
       if (previewText.length > 15) {
         previewText = previewText.substring(0, 15) + "...";
       }
 
-      // 获取对手名字
       let opponentName = item.sellerName;
       if (item.isUserItem && chatData) {
         const opponentId = chatData.opponentId;
@@ -871,7 +854,7 @@
     return root;
   };
 
-  // 3. VIP包间对话框渲染
+  // 3. VIP包间对话框渲染 (点击细诉即刻请求，绝无延迟)
   exports.renderChatWindow = async function(itemId) {
     const root = document.createElement("div");
     root.className = "rsa-chat-window";
@@ -885,7 +868,6 @@
     const chatData = rsa.state.chats[itemId];
     const messages = chatData ? (chatData.messages || []) : [];
 
-    // 获取谈话伙伴的名字
     let opponentName = item.sellerName;
     if (item.isUserItem && chatData) {
       const char = rsa.state.allChars.find(c => c.id === chatData.opponentId);
@@ -902,7 +884,6 @@
         </div>
       `;
     } else if (item.isUserItem) {
-      // 核心需求 2：上架品谈判时，增加“继续竞拍 (大厅)”控制，形成循环博弈
       negotiationHeaderHtml = `
         <div class="rsa-negotiation-bar">
           <span style="font-weight:700;">【私室密约】</span>
@@ -959,7 +940,7 @@
       acceptEl.onclick = async () => {
         const confirm = await rsa.roche.ui.confirm({
           title: "签署线下契约",
-          message: `确定以议价 ¥${item.currentBid} 成交并卖给【${opponentName}】吗？`
+          message: `确定要以议价 ¥${item.currentBid} 直接卖给【${opponentName}】吗？`
         });
         if (confirm) {
           item.status = "sold";
@@ -1002,7 +983,6 @@
           item.currentBid += 200;
           item.highestBidderName = `${opponentName} (主线买家)`;
 
-          // 摧毁密聊，逼迫去大厅一锤定音
           delete rsa.state.chats[item.id];
           rsa.state.biddingWars[item.id] = { bids: 2, active: true };
           await rsa.api.saveData();
@@ -1043,6 +1023,7 @@
     const sendField = inputArea.querySelector("#rsa-chat-field");
     const sendBtn = inputArea.querySelector("#rsa-chat-send");
 
+    // 核心改进：点击“细诉”立刻获取回复
     const sendMessageFunc = async () => {
       const text = sendField.value.trim();
       if (!text || isSold) return;
@@ -1051,6 +1032,13 @@
 
       const userMsg = { id: `msg-user-${Date.now()}`, sender: "user", text: text, timestamp: Date.now() };
       messages.push(userMsg);
+      
+      if (!rsa.state.chats[itemId]) {
+        rsa.state.chats[itemId] = {
+          opponentId: item.isUserItem ? "buyer" : item.sellerId,
+          messages: []
+        };
+      }
       rsa.state.chats[itemId].messages = messages;
       await rsa.api.saveData();
 
@@ -1060,6 +1048,7 @@
       messagesContainer.appendChild(userBubble);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
+      // 实时且立刻触发 AI 的后半包间小说式回复
       await rsa.api.getAIReplyForAuction(item, messages, messagesContainer);
     };
 
@@ -1228,7 +1217,7 @@
     return overlay;
   };
 
-  // 统一的全局渲染调度
+  // 全局渲染调度
   exports.renderAll = async function() {
     rsa.container.innerHTML = "";
 

@@ -1,6 +1,5 @@
 // ==================== AI 智能生成与决策层 ====================
 (function(exports) {
-  // 安全地在文件作用域顶部获取全局共享命名空间，彻底解决 ReferenceError 问题
   const rsa = window.RocheSellerAuction;
 
   // 1. 预设托底 NPC 资料库
@@ -12,20 +11,18 @@
     { id: "npc-shiya", name: "希雅", bio: "迷途的灵修学者，致力于解析精神共鸣与灵魂本质。", initials: "希" }
   ];
 
-  // 2. Base64 安全头像生成器：彻底解决双引号截断、导致 HTML 结构卡死爆开的漏洞
+  // 2. Base64 安全头像生成器
   function createNpcAvatar(initialLetter) {
     const char = (initialLetter || "N").substring(0, 1);
     const svg = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#2c3e50"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="10" font-family="sans-serif">${char}</text></svg>`;
     try {
-      // 转化为标准的 Base64 编码，使其成为不含任何引号的极净字符串
       return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
     } catch (e) {
-      // 容错降级：使用单引号替换
       return `data:image/svg+xml;utf8,<svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><rect width='100%' height='100%' fill='%232c3e50'/><text x='50%' y='55%' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='10' font-family='sans-serif'>${char}</text></svg>`;
     }
   }
 
-  // 3. 强效容错 JSON 清洗器（输出具体解析错误码）
+  // 3. 强效容错 JSON 清洗器
   function cleanAndParseJSON(rawText) {
     if (!rawText) {
       throw new Error("AI 返回了空内容，无法解析");
@@ -55,7 +52,7 @@
     return "暂无全局世界设定。";
   };
 
-  // 5. 数据存取
+  // 5. 数据载入与兼容迁移
   exports.loadData = async function() {
     const roche = rsa.roche;
     try {
@@ -77,7 +74,7 @@
     rsa.state.npcRegistry = (await roche.storage.get("auction_npc_registry")) || {};
     rsa.state.biddingWars = (await roche.storage.get("auction_bidding_wars")) || {};
 
-    // 平滑迁移：将老版本的 [Message] 数组转换为含有对手标记的新结构，避免旧缓存崩溃
+    // 兼容升级：若为老数组结构，自动平滑升级为新对象格式
     Object.keys(rsa.state.chats).forEach(itemId => {
       const chatData = rsa.state.chats[itemId];
       if (Array.isArray(chatData)) {
@@ -263,11 +260,7 @@ ${npcNameTemplates}
             highestBidderName: "暂无",
             status: "active",
             createdAt: Date.now(),
-            // 自动配置大厅抬价历史
-            bidsHistory: [
-              { bidder: "起拍价", price: currentBid - 500 },
-              { bidder: sellerName, price: currentBid }
-            ]
+            bidHistory: generateBiddingHistory(item.title, currentBid)
           });
         });
 
@@ -295,22 +288,23 @@ ${npcNameTemplates}
   exports.getAIReplyForAuction = async function(item, messages, messagesContainer) {
     const roche = rsa.roche;
 
+    // 核心安全：明确密室谈判的买卖主体，彻底解决人称代答
     let talkerId = item.sellerId;
     let talkerName = item.sellerName;
 
     if (item.isUserItem) {
-      const history = rsa.state.chats[item.id] || [];
-      const matchedChar = rsa.state.allChars.find(c => firstMsgContainsCharName(initialTextOf(history), c) || c.id === item.sellerId);
-      if (matchedChar) {
-        talkerId = matchedChar.id;
-        talkerName = matchedChar.handle || matchedChar.name; // <-- 已修复 Typo
+      const history = rsa.state.chats[item.id];
+      if (history && history.opponentId) {
+        talkerId = history.opponentId;
+        const char = rsa.state.allChars.find(c => c.id === talkerId);
+        talkerName = char ? (char.handle || char.name) : (rsa.state.npcRegistry[talkerId]?.name || "神秘买手");
       }
     }
 
     let charPersona = "";
     let memoryText = "";
     try {
-      const char = await roche.character.get(item.isUserItem ? getChatPartnerId(item) : item.sellerId);
+      const char = await roche.character.get(talkerId);
       if (char) {
         charPersona = char.persona || char.bio || "";
         if (char.conversationId) {
@@ -330,11 +324,11 @@ ${npcNameTemplates}
     const userPersonaDetails = rsa.state.activePersona ? (rsa.state.activePersona.persona || rsa.state.activePersona.bio || "") : "";
     const worldbookText = await exports.loadWorldbookText();
 
-    const systemPrompt = `你现在是且只需扮演角色【${item.isUserItem ? "买家" : "卖家"}：${item.sellerName}】。
-当前场景：你和用户（User）在拍卖大厅背后的【线下 VIP 私密谈判包厢】内。用户刚刚在大厅对你的藏品《${item.title}》表达了喜爱和兴趣。因此，你提议和用户一起来到这个无人打扰的密闭后室，合拢了厚重的木门，面对面坐下，准备开始就具体交易契约展开商讨。
+    const systemPrompt = `你现在是且只需扮演角色【${item.isUserItem ? "买家" : "卖家"}：${talkerName}】。
+当前语境场景：你和用户（User）在拍卖大厅背后的【线下 VIP 私密谈判包厢】内。用户刚刚在大厅对你的藏品《${item.title}》表达了喜爱和兴趣。因此，你提议和用户一起来到这个无人打扰的密闭后室，合拢了厚重的木门，面对面坐下，准备开始就具体交易契约展开商讨。
 
 【写实白描小说叙事风格 & 核心禁令】：
-1. 语言表达要极具“活人感”与“实体存在感”。摒弃任何教条式的模板限制。描写你的所思、所想、所做时，要像白描实体小说一样流畅自然、细节生动。
+1. 语言表达要极具“活人感”与“实体存在感”。工作神态要像白描实体小说一样流畅自然、细节生动。叙述描写你的神态时一律采用【第三人称（他/她/名字）】，并用 * 符号进行包裹。你的台词使用正常的冒号与双引号。
 2. 【绝对铁律（唯一禁令）】：不许抢话，不许替 User 代答！你绝对无权干涉、描写、代表或规划 User（用户）的任何肢体动作、言语内容、神态举止或内心戏。在你的回复中，只允许描写你自己的言语以及你自己的角色动作细节！User 的一举一动、一言一行，完全交给 User 在输入框发给你的自由文本决定。
 
 【世界观基础、你的人设及记忆交集】：
@@ -348,7 +342,7 @@ ${worldbookText}
 对用户的称呼：第二人称（你/您）。
 
 【限制】：
-1. 保持字数在 120-150 字以内，语句白描自然，充满线下密室博弈的紧绷感。
+1. 保持字数在 120-150 字以内，白描精炼，体现线下对弈的紧绷感。
 2. 绝对不许出现任何 Emoji 符号。
 `;
 
@@ -360,7 +354,7 @@ ${worldbookText}
     const typingBubble = document.createElement("div");
     typingBubble.className = "rsa-msg-bubble rsa-msg-received";
     typingBubble.style.opacity = "0.6";
-    typingBubble.textContent = `${item.isUserItem ? "对方" : item.sellerName} 正在低首思量...`;
+    typingBubble.textContent = `${item.isUserItem ? "对方" : talkerName} 正在低首思量...`;
     messagesContainer.appendChild(typingBubble);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
@@ -371,6 +365,14 @@ ${worldbookText}
       const replyText = res.text || "……";
       const charMsg = { id: `msg-char-${Date.now()}`, sender: "char", text: replyText, timestamp: Date.now() };
       messages.push(charMsg);
+      
+      // 核心安全：保存前确保命名空间完全初始化，绝对不会出现 undefined.messages 崩溃
+      if (!rsa.state.chats[item.id]) {
+        rsa.state.chats[item.id] = {
+          opponentId: item.sellerId,
+          messages: []
+        };
+      }
       rsa.state.chats[item.id].messages = messages;
       await exports.saveData();
 
@@ -404,7 +406,7 @@ ${chatHistoryText}
 根据上述商讨历史的诚意和条件拉扯，判定角色当前是否愿意与用户达成交易。
 请在 JSON 中输出最终决议：
 1. 若同意，"decision" 必须为 "agreed"；"statement" 为一段角色当场签契成交的白描台词与内心释放（使用写实小说体，用第三人称描写他/她自己，【唯一铁律：绝不许替 User 作出任何动作描写或代替User回答】）。
-2. 若拒绝，"decision" 为 "refused"；"statement" 为角色表示现在诚意尚未足够、或条件尚未达成而温和拒绝的声明（同样绝不代替 User 做出任何行动）。
+2. 若拒绝，"decision" 为 "refused"；"statement" 为角色表示现在诚意尚未足够、或条件尚未达成而温和拒绝的声明（同样极写实，绝不代替 User 做出任何行动）。
 3. 绝对不许出现任何 Emoji。
 
 请严格输出合法、无 markdown 包裹的 JSON 对象：
