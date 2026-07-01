@@ -1,5 +1,6 @@
 // ==================== AI 智能生成与决策层 ====================
 (function(exports) {
+  // 安全地在文件作用域顶部获取全局共享命名空间，彻底解决 ReferenceError 问题
   const rsa = window.RocheSellerAuction;
 
   // 1. 预设托底 NPC 资料库
@@ -74,7 +75,7 @@
     rsa.state.npcRegistry = (await roche.storage.get("auction_npc_registry")) || {};
     rsa.state.biddingWars = (await roche.storage.get("auction_bidding_wars")) || {};
 
-    // 兼容升级：若为老数组结构，自动平滑升级为新对象格式
+    // 兼容迁移
     Object.keys(rsa.state.chats).forEach(itemId => {
       const chatData = rsa.state.chats[itemId];
       if (Array.isArray(chatData)) {
@@ -113,17 +114,27 @@
     ];
   }
 
-  // 6. 托底商品本地生成器
+  // 6. 具象指向性托底商品本地生成器
   function generateDefaultItems() {
     const defaultItems = [];
     if (rsa.state.allChars && rsa.state.allChars.length > 0) {
       rsa.state.allChars.forEach((char, index) => {
         const charName = char.name || char.handle || "神秘客";
         const currentBid = 1500;
+        
+        // 托底生成高度指向性、极其清晰的生活/故事物件
+        const pool = [
+          { title: "一条毛线围巾", desc: "针脚有些歪斜的淡灰色围巾，边缘有微微的脱线，能嗅到一丝极淡的皂香与尘土气味。" },
+          { title: "一个小时候玩的盒子", desc: "边缘已经严重生锈的小饼干铁盒，盖子上贴着一张早已褪色泛黄、无法辨认的卡通贴纸。" },
+          { title: "残破的象棋盘", desc: "红木质地的老旧棋盘，中心有一道显眼的裂痕，其中一侧的“车”字棋子明显是用廉价的桃木临时雕刻补上的。" },
+          { title: "丢失分针的怀表", desc: "镀银外壳已经彻底磨损发黑的古旧怀表，里面只剩下一根孤零零的时针，正绝望地卡在九点整的位置。" }
+        ];
+        const selected = pool[index % pool.length];
+
         defaultItems.push({
           id: `item-char-${char.id}-${index}`,
-          title: `${charName}随身携带的旧挂饰`,
-          description: `带有${charName}过往故事的古朴小挂饰。在阳光下折射出淡淡的铜锈色，似乎包含一段宿主未曾得知的温暖回忆。`,
+          title: `${charName}的${selected.title}`,
+          description: `这是${charName}保留至今的物件。${selected.desc}`,
           sellerId: char.id,
           sellerName: charName,
           sellerAvatar: char.avatar || "",
@@ -131,7 +142,7 @@
           isUserItem: false,
           currentBid: currentBid,
           highestBidderName: "系统保留",
-          bidHistory: generateBiddingHistory(`${charName}的旧挂饰`, currentBid),
+          bidHistory: generateBiddingHistory(selected.title, currentBid),
           status: "active",
           createdAt: Date.now() - (index * 3600000)
         });
@@ -147,10 +158,19 @@
       };
 
       const currentBid = 2800 + (idx * 300);
+      const npcObjects = [
+        { title: "一个断了弦的八音盒", desc: "暗淡的铜制底座上立着一个掉漆的木偶人。上紧发条后只能发出两声沙哑的干瘪金属摩擦声。" },
+        { title: "一叠发黄的旧信封", desc: "被一根已经断掉又重新系起的棉线死死扎着。最上面那一封的邮戳日期是很多年前，字迹已经被水渍洇湿模糊。" },
+        { title: "一把生锈的黄铜钥匙", desc: "锯齿边缘已经被磨平，甚至有些微微弯曲，这把钥匙的主人似乎曾无数次试图用它强行开启过某个被卡死的锁孔。" },
+        { title: "半副破损的皮质手套", desc: "只有右手单只。掌心处有常年抓握缰绳或粗糙绳索留下的深黑色磨损痕迹，散发着皮革特有的陈旧气息。" },
+        { title: "一支沾有干涸蓝墨水的钢笔", desc: "金属笔尖上布满了黑色的墨垢，笔身有些许细密的划痕。笔盖被死死合上，透露出一种被尘封已久的孤寂感。" }
+      ];
+      const selected = npcObjects[idx % npcObjects.length];
+
       defaultItems.push({
         id: `item-npc-${npc.id}-${idx}`,
-        title: idx === 0 ? "未被解译的纯黑手抄本" : (idx === 1 ? "精密黑盒遗物" : "发光的深海晶核"),
-        description: idx === 0 ? "一部纸页完全泛黑的怪诞书籍，上面的符号不属于任何已知的人类文明语系。" : (idx === 1 ? "布满齿轮纹路的秘银铁盒，靠近时能隐约听到内部精密的齿轮卡扣转动声。" : "散发着淡蓝色微光的奇特矿晶，捧在手心能感受到类似潮汐波动的微弱脉搏。"),
+        title: selected.title,
+        description: `由【${npc.name}】上架挂牌。${selected.desc}`,
         sellerId: npcKey,
         sellerName: npc.name,
         sellerAvatar: rsa.state.npcRegistry[npcKey].avatar,
@@ -158,7 +178,7 @@
         isUserItem: false,
         currentBid: currentBid,
         highestBidderName: npc.name,
-        bidHistory: generateBiddingHistory("预设NPC藏品", currentBid),
+        bidHistory: generateBiddingHistory(selected.title, currentBid),
         status: "active",
         createdAt: Date.now()
       });
@@ -167,7 +187,7 @@
     return defaultItems;
   }
 
-  // 7. AI 刷新商品大厅
+  // 7. AI 刷新商品大厅 (核心强制具象物件准则)
   exports.triggerAIRefreshItems = async function() {
     if (rsa.isRefreshing) return;
     rsa.isRefreshing = true;
@@ -178,7 +198,7 @@
     const npcNameTemplates = _backupNpcs.map(n => `${n.name} (${n.bio})`).join("、");
 
     const systemPrompt = `你是一个线上秘密拍卖行的商品与买家NPC规划AI。
-请结合世界书，生成 3-4 个全新的、且部分卖家是由你完全“随机动态构想生成的NPC”。
+请结合世界书，生成 3-4 件全新的拍卖品。
 
 【世界设定】：
 ${worldbookText}
@@ -189,15 +209,20 @@ ${charListInfo}
 【NPC 名字与身份偏好参考】：
 ${npcNameTemplates}
 
-【生成准则】：
-1. 生成 3-4 个拍卖品，这些商品中有一部分必须是由实际角色（Characters）提供的，一部分是由完全随机由你构建的NPC提供的。
+【最高核心准则（具象物件铁律）】：
+1. 生成的物品名称必须极其简单、清晰、具体、在现实中可触摸，具有强烈的“指向性”与生活/故事感。
+2. 【绝对禁止】生成过于抽象、华丽、玄幻、或修辞空洞的名字。比如严禁使用：“璀璨命运之星”、“深海高能晶核”、“超自然精神契约”、“失落的灵魂碎片”。
+3. 【推荐范例】：你必须参考以下文风，生成诸如：“一条围巾”、“一个小时候玩的盒子”、“象棋盘”、“丢失分针的怀表”、“一支沾有墨水的钢笔”、“一件穿旧的呢子大衣”、“半张被烧焦的相片”等具有深度留白暗示与故事温度的具体物品。
+
+【输出生成准则】：
+1. 至少有一半的拍卖品是由实际挂载角色（Characters）提供的，将其背景设定或暗线故事融入到对该具体物件的描述中。
 2. 每一个由你动态构建的NPC，你必须为其构想独特的“npcBio”。
 3. 请严格输出一个合法、无 markdown 格式包裹、不含多余文字的 JSON 数组：
 [
   {
     "id": "随机唯一商品ID",
-    "title": "物品名称",
-    "description": "高品质描述。若是实际角色的物品，将人设关联记忆深度融入。",
+    "title": "符合上述具象物件铁律的名称",
+    "description": "围绕这一具体物件展开的故事描述，富有写实的小说质感，细说它的磨损、成色、温度或来历",
     "sellerId": "实际角色的ID 或 随机NPC的唯一拼音ID(如 npc-gu-qing)",
     "sellerName": "卖家名称（中文名字或设定）",
     "isNpc": true或false(系统NPC为true),
@@ -284,11 +309,10 @@ ${npcNameTemplates}
     }
   };
 
-  // 8. 线下 VIP 私密包厢对话 (微型小说白描文体 + 铁律：彻底杜绝抢话与替 User 代答)
+  // 8. 线下 VIP 私密包厢对话 (极致白描小说文风 + 绝对锁定物件物理细节 + 彻底禁止代替 User 代答)
   exports.getAIReplyForAuction = async function(item, messages, messagesContainer) {
     const roche = rsa.roche;
 
-    // 核心安全：明确密室谈判的买卖主体，彻底解决人称代答
     let talkerId = item.sellerId;
     let talkerName = item.sellerName;
 
@@ -304,7 +328,7 @@ ${npcNameTemplates}
     let charPersona = "";
     let memoryText = "";
     try {
-      const char = await roche.character.get(talkerId);
+      const char = await roche.character.get(item.isUserItem ? getChatPartnerId(item) : item.sellerId);
       if (char) {
         charPersona = char.persona || char.bio || "";
         if (char.conversationId) {
@@ -327,17 +351,21 @@ ${npcNameTemplates}
     const systemPrompt = `你现在是且只需扮演角色【${item.isUserItem ? "买家" : "卖家"}：${talkerName}】。
 当前语境场景：你和用户（User）在拍卖大厅背后的【线下 VIP 私密谈判包厢】内。用户刚刚在大厅对你的藏品《${item.title}》表达了喜爱和兴趣。因此，你提议和用户一起来到这个无人打扰的密闭后室，合拢了厚重的木门，面对面坐下，准备开始就具体交易契约展开商讨。
 
-【写实白描小说叙事风格 & 核心禁令】：
-1. 语言表达要极具“活人感”与“实体存在感”。工作神态要像白描实体小说一样流畅自然、细节生动。叙述描写你的神态时一律采用【第三人称（他/她/名字）】，并用 * 符号进行包裹。你的台词使用正常的冒号与双引号。
-2. 【绝对铁律（唯一禁令）】：不许抢话，不许替 User 代答！你绝对无权干涉、描写、代表或规划 User（用户）的任何肢体动作、言语内容、神态举止或内心戏。在你的回复中，只允许描写你自己的言语以及你自己的角色动作细节！User 的一举一动、一言一行，完全交给 User 在输入框发给你的自由文本决定。
+【最高谈判焦点：必须完美对齐拍卖品的物理状态与名字】：
+你当前和对方谈判的，是这一件极为具体的、实存的物理物件：
+>>【拍卖品名称】: ${item.title}
+>>【物理成色细节与来历背景描述】: ${item.description}
+>>【当前大厅最高出价】: ¥ ${item.currentBid}
+
+【白描小说叙事风格 & 核心禁令】：
+1. 你的所有谈判言行、讨价还价、情绪拉扯、对物件的估价，都必须牢牢锁死在上述【谈判焦点】的具体物件上。请在你的叙述中巧妙提及它的细节（比如：它磨损的边缘、上面的划痕、泛黑的时针等物理现状），展现出你深知这个物件的来龙去脉与温度。
+2. 语言表达要极具“实体存在感”与“活人谈判感”，使用白描实体小说的自然笔触。叙述描写你自己的神态动作时，一律采用【第三人称（他/她/名字）】，并用 * 符号进行包裹。你的台词使用正常的冒号与双引号。
+3. 【绝对铁律（唯一禁令）】：不许抢话，不许替 User 代答！你绝对无权干涉、描写、代表或规划 User（用户）的任何肢体动作、言语内容、神态举止或内心戏。在你的回复中，只允许描写你自己的言语以及你自己的角色动作细节！User 的一言一行，完全交给 User 在输入框发给你的自由文本决定。
 
 【世界观基础、你的人设及记忆交集】：
 ${worldbookText}
 你的人设背景：${charPersona}
 你与该用户的羁绊：${memoryText}
-
-【交易上下文信息】：
-当前商讨的藏品：${item.title} (大厅参考出价: ¥${item.currentBid})
 用户目前的身份背景：${userPersonaDetails}
 对用户的称呼：第二人称（你/您）。
 
@@ -366,7 +394,6 @@ ${worldbookText}
       const charMsg = { id: `msg-char-${Date.now()}`, sender: "char", text: replyText, timestamp: Date.now() };
       messages.push(charMsg);
       
-      // 核心安全：保存前确保命名空间完全初始化，绝对不会出现 undefined.messages 崩溃
       if (!rsa.state.chats[item.id]) {
         rsa.state.chats[item.id] = {
           opponentId: item.sellerId,
@@ -394,7 +421,12 @@ ${worldbookText}
     const worldbookText = await exports.loadWorldbookText();
 
     const systemPrompt = `你现在是线上拍卖行的交易判定AI（后台裁判）。
-请客观且睿智地分析【用户】与【角色 ${item.sellerName}】在这间密闭包厢里，关于藏品《${item.title}》(大厅报价: ¥${item.currentBid}) 的密谈契约进程。
+请客观且睿智地分析【用户】与【角色 ${item.sellerName}】在这间密闭包厢里，就特定藏品开展的线上与线下交易签约判定。
+
+【当前商讨的拍卖品细节】：
+>> 物品名称: ${item.title}
+>> 物理描述与来历: ${item.description}
+>> 大厅报价: ¥${item.currentBid}
 
 【世界书设定背景】：
 ${worldbookText}
@@ -406,7 +438,7 @@ ${chatHistoryText}
 根据上述商讨历史的诚意和条件拉扯，判定角色当前是否愿意与用户达成交易。
 请在 JSON 中输出最终决议：
 1. 若同意，"decision" 必须为 "agreed"；"statement" 为一段角色当场签契成交的白描台词与内心释放（使用写实小说体，用第三人称描写他/她自己，【唯一铁律：绝不许替 User 作出任何动作描写或代替User回答】）。
-2. 若拒绝，"decision" 为 "refused"；"statement" 为角色表示现在诚意尚未足够、或条件尚未达成而温和拒绝的声明（同样极写实，绝不代替 User 做出任何行动）。
+2. 若拒绝，"decision" 为 "refused"；"statement" 为角色表示现在诚意尚未足够、或条件尚未达成而温和拒绝的声明（同样绝不代替 User 做出任何行动）。
 3. 绝对不许出现任何 Emoji。
 
 请严格输出合法、无 markdown 包裹的 JSON 对象：
@@ -438,7 +470,7 @@ ${chatHistoryText}
     const charListInfo = rsa.state.allChars.map(c => `- ID: ${c.id}, 名字: ${c.name || c.handle}, 简介: ${c.persona || c.bio || ""}`).join("\n");
 
     const systemPrompt = `你是一个拍卖会买家反应决策AI。
-用户在秘密拍卖行刚刚上架了一件藏品：
+用户在秘密拍卖行刚刚上架了一件极其具体的藏品：
 【物品标题】: ${userItem.title}
 【物品描述】: ${userItem.description}
 【起拍底价】: ¥ ${userItem.currentBid}
@@ -498,7 +530,7 @@ ${charListInfo}
         }
       }
     } catch (e) {
-      console.error("评估联动反应遇到一点延迟", e);
+      console.error("评估意向反应延迟：", e);
     } finally {
       await rsa.ui.renderAll();
     }
