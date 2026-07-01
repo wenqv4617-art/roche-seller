@@ -1,9 +1,9 @@
 // ==================== AI 智能生成与决策层 ====================
 (function(exports) {
-  // 安全获取全局共享空间
+  // 安全地在文件作用域顶部获取全局共享命名空间，彻底解决 ReferenceError 问题
   const rsa = window.RocheSellerAuction;
 
-  // 托底预设 NPC 库
+  // 1. 预设托底 NPC 资料库
   const _backupNpcs = [
     { id: "npc-gu-qing", name: "顾清", bio: "古画修复师，能从斑驳墨迹中感知时光执念。", initials: "顾" },
     { id: "npc-quinn", name: "奎恩", bio: "荒原拾荒人，专注于寻找旧时代机械废墟里的精密遗物。", initials: "奎" },
@@ -12,7 +12,37 @@
     { id: "npc-shiya", name: "希雅", bio: "迷途的灵修学者，致力于解析精神共鸣与灵魂本质。", initials: "希" }
   ];
 
-  // 契约世界书挂载
+  // 2. Base64 安全头像生成器：彻底解决双引号截断、导致 HTML 结构卡死爆开的漏洞
+  function createNpcAvatar(initialLetter) {
+    const char = (initialLetter || "N").substring(0, 1);
+    const svg = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#2c3e50"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="10" font-family="sans-serif">${char}</text></svg>`;
+    try {
+      // 转化为标准的 Base64 编码，使其成为不含任何引号的极净字符串
+      return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+    } catch (e) {
+      // 容错降级：使用单引号替换
+      return `data:image/svg+xml;utf8,<svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><rect width='100%' height='100%' fill='%232c3e50'/><text x='50%' y='55%' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='10' font-family='sans-serif'>${char}</text></svg>`;
+    }
+  }
+
+  // 3. 强效容错 JSON 清洗器（输出具体解析错误码）
+  function cleanAndParseJSON(rawText) {
+    if (!rawText) {
+      throw new Error("AI 返回了空内容，无法解析");
+    }
+    try {
+      let cleaned = rawText.trim();
+      cleaned = cleaned.replace(/^```json\s*/i, "");
+      cleaned = cleaned.replace(/^```\s*/, "");
+      cleaned = cleaned.replace(/\s*```$/, "");
+      return JSON.parse(cleaned);
+    } catch (e) {
+      const sample = rawText.replace(/\n/g, " ").substring(0, 80);
+      throw new Error(`JSON解析崩溃 (${e.message}) - 原始切片: "${sample}..."`);
+    }
+  }
+
+  // 4. 世界书挂载
   exports.loadWorldbookText = async function() {
     try {
       const entries = await rsa.roche.worldbook.getEntries({ scope: "global" });
@@ -25,7 +55,7 @@
     return "暂无全局世界设定。";
   };
 
-  // 数据载入与老版本结构自动兼容迁移
+  // 5. 数据存取
   exports.loadData = async function() {
     const roche = rsa.roche;
     try {
@@ -86,7 +116,7 @@
     ];
   }
 
-  // 默认托底藏品
+  // 6. 托底商品本地生成器
   function generateDefaultItems() {
     const defaultItems = [];
     if (rsa.state.allChars && rsa.state.allChars.length > 0) {
@@ -140,7 +170,7 @@
     return defaultItems;
   }
 
-  // AI 刷新商品大厅
+  // 7. AI 刷新商品大厅
   exports.triggerAIRefreshItems = async function() {
     if (rsa.isRefreshing) return;
     rsa.isRefreshing = true;
@@ -261,24 +291,19 @@ ${npcNameTemplates}
     }
   };
 
-  // 7. 线下 VIP 私密包厢对话 (微型小说文体 + 铁律：禁止代替 User 回答或行动)
+  // 8. 线下 VIP 私密包厢对话 (微型小说白描文体 + 铁律：彻底杜绝抢话与替 User 代答)
   exports.getAIReplyForAuction = async function(item, messages, messagesContainer) {
     const roche = rsa.roche;
 
-    // 核心安全：判断到底是谁找谁谈判
-    // 如果这个藏品是用户自己上架的，聊天对话的主体是那个出价/私聊用户的 Character，所以应该读 item.highestBidder (或 chats 里第一条记录对应的卖家)
     let talkerId = item.sellerId;
     let talkerName = item.sellerName;
 
     if (item.isUserItem) {
-      // 寻找发起对话的主线角色
       const history = rsa.state.chats[item.id] || [];
-      const firstCharMsg = history.find(m => m.sender === "char");
-      // 如果没有主线角色，兜底选择第一个主线角色
       const matchedChar = rsa.state.allChars.find(c => firstMsgContainsCharName(initialTextOf(history), c) || c.id === item.sellerId);
       if (matchedChar) {
         talkerId = matchedChar.id;
-        talkerName = matchedChar.handle || randomChar.name;
+        talkerName = matchedChar.handle || matchedChar.name; // <-- 已修复 Typo
       }
     }
 
@@ -305,23 +330,26 @@ ${npcNameTemplates}
     const userPersonaDetails = rsa.state.activePersona ? (rsa.state.activePersona.persona || rsa.state.activePersona.bio || "") : "";
     const worldbookText = await exports.loadWorldbookText();
 
-    const systemPrompt = `你现在在小说体裁中，扮演正在秘密拍卖会线下 VIP 独立包间里的角色【${item.isUserItem ? "买家" : "卖家"}：${item.sellerName}】。你正在与用户面对面商讨《${item.title}》的交易。
+    const systemPrompt = `你现在是且只需扮演角色【${item.isUserItem ? "买家" : "卖家"}：${item.sellerName}】。
+当前场景：你和用户（User）在拍卖大厅背后的【线下 VIP 私密谈判包厢】内。用户刚刚在大厅对你的藏品《${item.title}》表达了喜爱和兴趣。因此，你提议和用户一起来到这个无人打扰的密闭后室，合拢了厚重的木门，面对面坐下，准备开始就具体交易契约展开商讨。
 
-【小说文体 & 行为限制（铁律）】：
-1. 你的叙事必须完全采用【第三人称（他/她/角色名字）】的微型小说动作细节描写，且所有的动作描写必须使用 * 符号进行包裹。你的台词使用正常的冒号与双引号。
-（例如：*他微微侧过身去，目光在烛火暗处晃动了一下，语气带着一丝漫不经心。*“有些东西，不是用单纯的筹码能够度量的。”）
-2. 【铁律：严禁替用户（User）行动或替User回答】！你绝对禁止在你的叙事中代表用户做出任何肢体动作、神态变化、台词表达、内心独白。你只负责且仅能描述你扮演的角色本人。用户想说什么、想做什么，完全由用户通过输入框发送过来的文本决定。
-3. 请将你的动作白描描写和台词进行有机融合，富有真实线下密室谈判的博弈紧绷感。
+【写实白描小说叙事风格 & 核心禁令】：
+1. 语言表达要极具“活人感”与“实体存在感”。摒弃任何教条式的模板限制。描写你的所思、所想、所做时，要像白描实体小说一样流畅自然、细节生动。
+2. 【绝对铁律（唯一禁令）】：不许抢话，不许替 User 代答！你绝对无权干涉、描写、代表或规划 User（用户）的任何肢体动作、言语内容、神态举止或内心戏。在你的回复中，只允许描写你自己的言语以及你自己的角色动作细节！User 的一举一动、一言一行，完全交给 User 在输入框发给你的自由文本决定。
 
-【世界设定与记忆交集】：
+【世界观基础、你的人设及记忆交集】：
 ${worldbookText}
-你的人设设定：${charPersona}
-你与Ta的记忆轨迹：${memoryText}
+你的人设背景：${charPersona}
+你与该用户的羁绊：${memoryText}
 
-【谈判藏品上下文】：
-物品名称：${item.title} (大厅竞拍价: ¥${item.currentBid})
+【交易上下文信息】：
+当前商讨的藏品：${item.title} (大厅参考出价: ¥${item.currentBid})
 用户目前的身份背景：${userPersonaDetails}
 对用户的称呼：第二人称（你/您）。
+
+【限制】：
+1. 保持字数在 120-150 字以内，语句白描自然，充满线下密室博弈的紧绷感。
+2. 绝对不许出现任何 Emoji 符号。
 `;
 
     const chatPayload = [{ role: "system", content: systemPrompt }];
@@ -353,7 +381,7 @@ ${worldbookText}
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     } catch (e) {
       typingBubble.remove();
-      roche.ui.toast(`AI 谈判连接被阻隔: ${e.message || e}`);
+      roche.ui.toast(`AI 对话被阻断: ${e.message || e}`);
     }
   };
 
@@ -364,7 +392,7 @@ ${worldbookText}
     const worldbookText = await exports.loadWorldbookText();
 
     const systemPrompt = `你现在是线上拍卖行的交易判定AI（后台裁判）。
-请分析【用户】与【角色 ${item.sellerName}】在这间密闭包厢里，关于藏品《${item.title}》(当前大厅价格: ¥${item.currentBid}) 的交易谈判定向过程。
+请客观且睿智地分析【用户】与【角色 ${item.sellerName}】在这间密闭包厢里，关于藏品《${item.title}》(大厅报价: ¥${item.currentBid}) 的密谈契约进程。
 
 【世界书设定背景】：
 ${worldbookText}
@@ -373,14 +401,16 @@ ${worldbookText}
 ${chatHistoryText}
 
 【决策逻辑】：
-分析对话进度和两人的诚意，输出一个 JSON 对象：
-1. "decision": "agreed"（同意成交）或 "refused"（拒绝成交）。
-2. "statement": 角色做出的最终成交致辞或拒绝声明。风格要像写实小说里的实体白描交谈，【唯一禁令：绝不许抢话，绝不代替 User 做出任何举动、言语或内心戏描写】。
+根据上述商讨历史的诚意和条件拉扯，判定角色当前是否愿意与用户达成交易。
+请在 JSON 中输出最终决议：
+1. 若同意，"decision" 必须为 "agreed"；"statement" 为一段角色当场签契成交的白描台词与内心释放（使用写实小说体，用第三人称描写他/她自己，【唯一铁律：绝不许替 User 作出任何动作描写或代替User回答】）。
+2. 若拒绝，"decision" 为 "refused"；"statement" 为角色表示现在诚意尚未足够、或条件尚未达成而温和拒绝的声明（同样绝不代替 User 做出任何行动）。
+3. 绝对不许出现任何 Emoji。
 
-不带任何 Emoji，严格输出以下 JSON：
+请严格输出合法、无 markdown 包裹的 JSON 对象：
 {
   "decision": "agreed" 或 "refused",
-  "statement": "小说文体致辞（不许替User行动）"
+  "statement": "极具写实活人感、杜绝替User代答的小说体回复"
 }
 `;
 
@@ -447,7 +477,6 @@ ${charListInfo}
             timestamp: Date.now()
           };
           
-          // 核心安全：明确记录发起谈判的对手 CharID，彻底防止人称混淆
           rsa.state.chats[userItem.id] = {
             opponentId: decision.charId,
             messages: [initialMsg]
@@ -467,7 +496,7 @@ ${charListInfo}
         }
       }
     } catch (e) {
-      console.error("评估意向反应延迟：", e);
+      console.error("评估联动反应遇到一点延迟", e);
     } finally {
       await rsa.ui.renderAll();
     }
